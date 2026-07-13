@@ -1,0 +1,19 @@
+# Backend — Python virtual environment
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables (never commit real credentials)
+.env
+
+# SQLite database files (generated at runtime)
+instance/*.db
+
+# pytest cache and coverage reports
+.pytest_cache/
+coverage.xml
+htmlcov/
+.coverage
