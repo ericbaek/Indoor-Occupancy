@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
-from .database import get_db, get_events, get_room_state, insert_event, reset_room
+from .database import (
+    get_db,
+    get_events,
+    get_occupancy_events,
+    get_occupancy_total,
+    get_room_state,
+    insert_event,
+    insert_occupancy_event,
+    reset_room,
+)
 from .occupancy import compute_new_count, get_occupancy_level
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -152,3 +161,133 @@ def room_reset(room_id: str):
         "last_event": "RESET",
         "updated_at": updated_at,
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# PIR doorway occupancy events
+# ---------------------------------------------------------------------------
+
+_VALID_EVENTS = {"entry", "exit"}
+_EVENT_COUNT_CHANGE = {"entry": 1, "exit": -1}
+
+
+@api.post("/occupancy/events")
+def post_occupancy_event():
+    """Accept and store a PIR doorway occupancy event from hardware."""
+    if not request.is_json:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid or empty JSON body"}), 400
+
+    # --- Required field presence check ---
+    required = ("device_id", "event_id", "event", "count_change",
+                "duration_ms", "uptime_ms")
+    missing = [f for f in required if f not in data]
+    if missing:
+        return jsonify(
+            {"error": f"Missing required field(s): {', '.join(missing)}"}
+        ), 400
+
+    # --- device_id ---
+    device_id: str = str(data["device_id"]).strip()
+    if not device_id:
+        return jsonify({"error": "device_id must not be empty"}), 400
+
+    # --- event_id ---
+    raw_event_id = data["event_id"]
+    if isinstance(raw_event_id, bool) or not isinstance(raw_event_id, int):
+        return jsonify({"error": "event_id must be an integer"}), 400
+    event_id: int = raw_event_id
+
+    # --- event ---
+    raw_event = data["event"]
+    if not isinstance(raw_event, str) or raw_event not in _VALID_EVENTS:
+        return jsonify(
+            {"error": f"event must be one of: {', '.join(sorted(_VALID_EVENTS))}"}
+        ), 400
+    event: str = raw_event
+
+    # --- count_change: must be an integer and match the event type ---
+    raw_cc = data["count_change"]
+    if isinstance(raw_cc, bool) or not isinstance(raw_cc, int):
+        return jsonify({"error": "count_change must be an integer"}), 400
+    count_change: int = raw_cc
+
+    expected_cc = _EVENT_COUNT_CHANGE[event]
+    if count_change != expected_cc:
+        return jsonify({
+            "error": (
+                f"count_change must be {expected_cc} for an '{event}' event, "
+                f"got {count_change}"
+            )
+        }), 400
+
+    # --- duration_ms ---
+    raw_duration = data["duration_ms"]
+    if isinstance(raw_duration, bool) or not isinstance(raw_duration, int):
+        return jsonify({"error": "duration_ms must be an integer"}), 400
+    if raw_duration < 0:
+        return jsonify({"error": "duration_ms must be zero or greater"}), 400
+    duration_ms: int = raw_duration
+
+    # --- uptime_ms ---
+    raw_uptime = data["uptime_ms"]
+    if isinstance(raw_uptime, bool) or not isinstance(raw_uptime, int):
+        return jsonify({"error": "uptime_ms must be an integer"}), 400
+    if raw_uptime < 0:
+        return jsonify({"error": "uptime_ms must be zero or greater"}), 400
+    uptime_ms: int = raw_uptime
+
+    # --- Store event ---
+    import sqlite3
+    try:
+        _row_id, received_at = insert_occupancy_event(
+            device_id=device_id,
+            event_id=event_id,
+            event=event,
+            count_change=count_change,
+            duration_ms=duration_ms,
+            uptime_ms=uptime_ms,
+        )
+    except sqlite3.IntegrityError:
+        return jsonify({
+            "error": (
+                f"Duplicate event: device_id '{device_id}' and "
+                f"event_id {event_id} already recorded"
+            )
+        }), 409
+
+    return jsonify({
+        "success": True,
+        "message": "Occupancy event recorded",
+        "data": {
+            "device_id": device_id,
+            "event_id": event_id,
+            "event": event,
+            "count_change": count_change,
+        },
+    }), 201
+
+
+@api.get("/occupancy/current")
+def get_current_occupancy():
+    """Return the current occupancy derived from the sum of all count_change values."""
+    occupancy, updated_at = get_occupancy_total()
+    return jsonify({
+        "occupancy": occupancy,
+        "updated_at": updated_at,
+    }), 200
+
+
+@api.get("/occupancy/events")
+def list_occupancy_events():
+    """Return recent PIR occupancy events, newest first."""
+    try:
+        limit = max(1, int(request.args.get("limit", "50")))
+    except ValueError:
+        limit = 50
+
+    events = get_occupancy_events(limit=limit)
+    return jsonify({"events": events}), 200

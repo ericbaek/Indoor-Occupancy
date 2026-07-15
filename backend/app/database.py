@@ -47,6 +47,18 @@ CREATE TABLE IF NOT EXISTS room_state (
     last_event       TEXT,
     updated_at       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS occupancy_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id    TEXT    NOT NULL,
+    event_id     INTEGER NOT NULL,
+    event        TEXT    NOT NULL CHECK(event IN ('entry', 'exit')),
+    count_change INTEGER NOT NULL CHECK(count_change IN (1, -1)),
+    duration_ms  INTEGER NOT NULL CHECK(duration_ms >= 0),
+    uptime_ms    INTEGER NOT NULL CHECK(uptime_ms >= 0),
+    received_at  TEXT    NOT NULL,
+    UNIQUE (device_id, event_id)
+);
 """
 
 
@@ -179,3 +191,62 @@ def get_events(
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# PIR doorway occupancy events
+# ---------------------------------------------------------------------------
+
+def insert_occupancy_event(
+    *,
+    device_id: str,
+    event_id: int,
+    event: str,
+    count_change: int,
+    duration_ms: int,
+    uptime_ms: int,
+) -> tuple[int, str]:
+    """Insert a single PIR occupancy event and return (row_id, received_at).
+
+    Raises sqlite3.IntegrityError when the (device_id, event_id) pair already
+    exists in the database (duplicate hardware event).
+    """
+    received_at = _utc_now()
+    db = get_db()
+    cursor = db.execute(
+        """
+        INSERT INTO occupancy_events
+            (device_id, event_id, event, count_change,
+             duration_ms, uptime_ms, received_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (device_id, event_id, event, count_change,
+         duration_ms, uptime_ms, received_at),
+    )
+    db.commit()
+    return cursor.lastrowid, received_at
+
+
+def get_occupancy_events(limit: int = 50) -> list[dict[str, Any]]:
+    """Return recent PIR occupancy events, newest first."""
+    limit = min(max(1, limit), 200)
+    rows = get_db().execute(
+        "SELECT * FROM occupancy_events ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_occupancy_total() -> tuple[int, str | None]:
+    """Return (current_occupancy, updated_at) derived from occupancy_events.
+
+    current_occupancy is clamped to zero — it will never be negative.
+    updated_at is the received_at of the most recent event, or None if there
+    are no events yet.
+    """
+    row = get_db().execute(
+        "SELECT SUM(count_change) AS total, MAX(received_at) AS updated_at "
+        "FROM occupancy_events"
+    ).fetchone()
+    total: int = row["total"] if row["total"] is not None else 0
+    return max(0, total), row["updated_at"]

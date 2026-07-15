@@ -406,3 +406,268 @@ directly.
 - MAE and RMSE evaluation against ground-truth occupancy
 - Multi-room visualisation
 - Cloud deployment (production hardening)
+
+---
+
+## PIR Doorway Occupancy Events
+
+This section documents the **first backend feature** for receiving and storing
+occupancy updates directly from the PIR doorway hardware (Raspberry Pi Pico).
+
+---
+
+### Hardware JSON Format
+
+The Pico firmware sends the following JSON payload for each detected crossing:
+
+**Entry event:**
+
+```json
+{
+  "device_id": "doorway-pico-01",
+  "event_id": 1,
+  "event": "entry",
+  "count_change": 1,
+  "duration_ms": 2404,
+  "uptime_ms": 508384
+}
+```
+
+**Exit event:**
+
+```json
+{
+  "device_id": "doorway-pico-01",
+  "event_id": 2,
+  "event": "exit",
+  "count_change": -1,
+  "duration_ms": 1222,
+  "uptime_ms": 496909
+}
+```
+
+---
+
+### Database Table: `occupancy_events`
+
+Stored at `instance/occupancy.db` alongside the existing tables.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Internal row identifier |
+| `device_id` | TEXT | NOT NULL | Hardware device identifier |
+| `event_id` | INTEGER | NOT NULL | Monotonic counter from the Pico |
+| `event` | TEXT | NOT NULL, `entry` or `exit` | Event direction |
+| `count_change` | INTEGER | NOT NULL, `1` or `-1` | Occupancy delta |
+| `duration_ms` | INTEGER | NOT NULL, ≥ 0 | Duration of the crossing in milliseconds |
+| `uptime_ms` | INTEGER | NOT NULL, ≥ 0 | Device uptime at the time of the event |
+| `received_at` | TEXT | NOT NULL | UTC ISO 8601 timestamp (backend-generated) |
+
+**Unique constraint:** `(device_id, event_id)` — prevents the same hardware
+event from being stored twice.
+
+---
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/occupancy/events` | Store a PIR doorway occupancy event |
+| `GET`  | `/api/occupancy/current` | Current occupancy (sum of `count_change`, ≥ 0) |
+| `GET`  | `/api/occupancy/events` | List recent PIR events, newest first |
+
+#### `POST /api/occupancy/events`
+
+Accepts the hardware JSON format, validates all fields, and stores valid events.
+
+**Validation rules:**
+
+- All six fields must be present.
+- `event` must be exactly `"entry"` or `"exit"` (lowercase).
+- `count_change` must be `1` for `"entry"` and `-1` for `"exit"`.
+- `duration_ms` and `uptime_ms` must be integers ≥ 0.
+- Duplicate `(device_id, event_id)` pairs are rejected with HTTP 409.
+
+**Success response (HTTP 201):**
+
+```json
+{
+  "success": true,
+  "message": "Occupancy event recorded",
+  "data": {
+    "device_id": "doorway-pico-01",
+    "event_id": 1,
+    "event": "entry",
+    "count_change": 1
+  }
+}
+```
+
+**Error response (HTTP 400 or 409):**
+
+```json
+{
+  "error": "Duplicate event: device_id 'doorway-pico-01' and event_id 1 already recorded"
+}
+```
+
+#### `GET /api/occupancy/current`
+
+Returns the current occupancy calculated from the sum of all stored
+`count_change` values.  The value is clamped to zero and will never be
+returned as negative.
+
+**Response:**
+
+```json
+{
+  "occupancy": 3,
+  "updated_at": "2026-07-15T21:45:00+00:00"
+}
+```
+
+#### `GET /api/occupancy/events?limit=20`
+
+Returns the most recent PIR occupancy events.  The `limit` parameter is
+optional (default 50, maximum 200).
+
+**Response:**
+
+```json
+{
+  "events": [
+    {
+      "id": 2,
+      "device_id": "doorway-pico-01",
+      "event_id": 2,
+      "event": "exit",
+      "count_change": -1,
+      "duration_ms": 1222,
+      "uptime_ms": 496909,
+      "received_at": "2026-07-15T21:45:01+00:00"
+    }
+  ]
+}
+```
+
+---
+
+### curl Examples — PIR Occupancy
+
+#### Send an entry event
+
+```bash
+curl -X POST http://localhost:5000/api/occupancy/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "doorway-pico-01",
+    "event_id": 1,
+    "event": "entry",
+    "count_change": 1,
+    "duration_ms": 2404,
+    "uptime_ms": 508384
+  }'
+```
+
+#### Send an exit event
+
+```bash
+curl -X POST http://localhost:5000/api/occupancy/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "doorway-pico-01",
+    "event_id": 2,
+    "event": "exit",
+    "count_change": -1,
+    "duration_ms": 1222,
+    "uptime_ms": 496909
+  }'
+```
+
+#### Get current occupancy
+
+```bash
+curl http://localhost:5000/api/occupancy/current
+```
+
+#### List recent PIR events
+
+```bash
+curl "http://localhost:5000/api/occupancy/events?limit=20"
+```
+
+---
+
+### PIR Test Script
+
+The seed script sends six pre-built PIR events and prints the resulting
+occupancy without needing the real hardware.
+
+```bash
+# Backend must be running first:
+python run.py
+
+# In a separate terminal (from the backend/ directory):
+python scripts/send_pir_test_events.py
+```
+
+Expected output:
+
+```
+============================================================
+  PIR Doorway Occupancy — Test Event Sender
+  Endpoint: http://localhost:5000/api/occupancy/events
+============================================================
+  event_id=1  entry  →  OK (201)
+  event_id=2  entry  →  OK (201)
+  event_id=3  entry  →  OK (201)
+  event_id=4  exit   →  OK (201)
+  event_id=5  entry  →  OK (201)
+  event_id=6  exit   →  OK (201)
+------------------------------------------------------------
+  Current occupancy : 2
+  Updated at        : 2026-07-15T21:45:06+00:00
+============================================================
+  Expected final occupancy: 2
+============================================================
+```
+
+If the script is run a second time, duplicate events are gracefully skipped
+with a 409 response — the occupancy total remains correct.
+
+---
+
+### Running PIR Tests
+
+```bash
+# From the backend/ directory with the virtual environment active:
+pytest tests/test_occupancy_events.py -v
+```
+
+To run the complete test suite (all existing and new tests):
+
+```bash
+pytest -v
+```
+
+---
+
+### SQLite Database Location
+
+```
+backend/instance/occupancy.db
+```
+
+This file is git-ignored and is created automatically on first startup.
+
+To inspect the new table:
+
+```bash
+sqlite3 instance/occupancy.db
+```
+
+```sql
+SELECT * FROM occupancy_events ORDER BY id DESC LIMIT 10;
+SELECT SUM(count_change) AS occupancy FROM occupancy_events;
+```
+
