@@ -28,7 +28,7 @@
   height: 34px;
   border-radius: 9px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--card);
   display: grid;
   place-items: center;
   cursor: pointer;

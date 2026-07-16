@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Users, Radar, Clock3, FileBarChart, Settings } from "lucide-react";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -26,9 +26,31 @@ const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
 };
 
+type Theme = "light" | "dark";
+
+const THEME_STORAGE_KEY = "indoor-occupancy-theme";
+
+function getInitialTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
 function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const data = useOccupancyData();
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The selected theme still applies when storage is unavailable.
+    }
+  }, [theme]);
 
   const activeTargets = data.radarTargets.length;
   const lastUpdatedLabel = data.lastUpdated.toLocaleTimeString([], {
@@ -41,7 +63,12 @@ function App() {
     <div className="app-shell">
       <Sidebar active={page} onNavigate={setPage} />
       <main className="app-main">
-        <Topbar title={TOPBAR_COPY[page].title} sub={TOPBAR_COPY[page].sub} />
+        <Topbar
+          title={TOPBAR_COPY[page].title}
+          sub={TOPBAR_COPY[page].sub}
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => current === "light" ? "dark" : "light")}
+        />
 
         {page === "Dashboard" && (
           <>
