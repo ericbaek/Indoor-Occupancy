@@ -1,0 +1,76 @@
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px 14px;
+  min-width: 0;
+}
+
+.stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 12px;
+}
+.stat-icon-signal { background: var(--signal-dim); color: var(--signal); }
+.stat-icon-amber  { background: var(--amber-dim); color: var(--amber); }
+.stat-icon-red    { background: var(--red-dim); color: var(--red); }
+.stat-icon-blue   { background: var(--blue-dim); color: var(--blue); }
+.stat-icon-neutral{ background: #EEF0F0; color: var(--text-dim); }
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  color: var(--text);
+  margin-top: 4px;
+  line-height: 1.15;
+}
+.stat-unit {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
+.stat-sub {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 3px;
+}
+
+.stat-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border-radius: 999px;
+  margin-top: 12px;
+}
+.stat-tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.stat-tag-signal { background: var(--signal-dim); color: #0E8477; }
+.stat-tag-signal .stat-tag-dot { background: var(--signal); }
+.stat-tag-amber { background: var(--amber-dim); color: #A0591E; }
+.stat-tag-amber .stat-tag-dot { background: var(--amber); }
+.stat-tag-red { background: var(--red-dim); color: #9B331F; }
+.stat-tag-red .stat-tag-dot { background: var(--red); }
+.stat-tag-blue { background: var(--blue-dim); color: #2C55AD; }
+.stat-tag-blue .stat-tag-dot { background: var(--blue); }
+.stat-tag-neutral { background: #EEF0F0; color: var(--text-dim); }
+.stat-tag-neutral .stat-tag-dot { background: var(--text-faint); }
