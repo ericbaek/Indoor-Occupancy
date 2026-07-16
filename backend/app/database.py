@@ -27,6 +27,10 @@ def close_connection(exception: BaseException | None = None) -> None:
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Schema — all CREATE TABLE statements are idempotent (IF NOT EXISTS).
+# ---------------------------------------------------------------------------
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensor_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,24 +53,75 @@ CREATE TABLE IF NOT EXISTS room_state (
 );
 
 CREATE TABLE IF NOT EXISTS occupancy_events (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id    TEXT    NOT NULL,
-    event_id     INTEGER NOT NULL,
-    event        TEXT    NOT NULL CHECK(event IN ('entry', 'exit')),
-    count_change INTEGER NOT NULL CHECK(count_change IN (1, -1)),
-    duration_ms  INTEGER NOT NULL CHECK(duration_ms >= 0),
-    uptime_ms    INTEGER NOT NULL CHECK(uptime_ms >= 0),
-    received_at  TEXT    NOT NULL,
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id           TEXT    NOT NULL,
+    event_id            INTEGER NOT NULL,
+    event               TEXT    NOT NULL CHECK(event IN ('entry', 'exit')),
+    count_change        INTEGER NOT NULL CHECK(count_change IN (1, -1)),
+    duration_ms         INTEGER NOT NULL CHECK(duration_ms >= 0),
+    uptime_ms           INTEGER NOT NULL CHECK(uptime_ms >= 0),
+    received_at         TEXT    NOT NULL,
+    message_type        TEXT,
+    radar_target_count  INTEGER,
+    radar_targets_json  TEXT,
     UNIQUE (device_id, event_id)
 );
+
+CREATE TABLE IF NOT EXISTS radar_latest (
+    device_id   TEXT    PRIMARY KEY,
+    uptime_ms   INTEGER NOT NULL,
+    target_count INTEGER NOT NULL,
+    targets_json TEXT    NOT NULL,
+    received_at TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radar_readings (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id    TEXT    NOT NULL,
+    uptime_ms    INTEGER NOT NULL,
+    target_count INTEGER NOT NULL,
+    targets_json TEXT    NOT NULL,
+    received_at  TEXT    NOT NULL
+);
 """
+
+
+def _migrate_occupancy_events(db: sqlite3.Connection) -> None:
+    """Safely add new columns to occupancy_events if they do not already exist.
+
+    SQLite does not support ALTER TABLE … ADD COLUMN IF NOT EXISTS, so we check
+    PRAGMA table_info first.  This is safe to call multiple times.
+    """
+    existing = {
+        row["name"]
+        for row in db.execute("PRAGMA table_info(occupancy_events)").fetchall()
+    }
+
+    new_columns = [
+        ("message_type",       "TEXT"),
+        ("radar_target_count", "INTEGER"),
+        ("radar_targets_json", "TEXT"),
+    ]
+
+    for col_name, col_type in new_columns:
+        if col_name not in existing:
+            db.execute(
+                f"ALTER TABLE occupancy_events ADD COLUMN {col_name} {col_type}"
+            )
+
+    db.commit()
 
 
 def init_db(app: Flask) -> None:
     db = get_db(app)
     db.executescript(_SCHEMA)
     db.commit()
+    _migrate_occupancy_events(db)
 
+
+# ---------------------------------------------------------------------------
+# sensor_events / room_state helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 def insert_event(
     *,
@@ -205,6 +260,9 @@ def insert_occupancy_event(
     count_change: int,
     duration_ms: int,
     uptime_ms: int,
+    message_type: str | None = None,
+    radar_target_count: int | None = None,
+    radar_targets_json: str | None = None,
 ) -> tuple[int, str]:
     """Insert a single PIR occupancy event and return (row_id, received_at).
 
@@ -217,11 +275,13 @@ def insert_occupancy_event(
         """
         INSERT INTO occupancy_events
             (device_id, event_id, event, count_change,
-             duration_ms, uptime_ms, received_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             duration_ms, uptime_ms, received_at,
+             message_type, radar_target_count, radar_targets_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (device_id, event_id, event, count_change,
-         duration_ms, uptime_ms, received_at),
+         duration_ms, uptime_ms, received_at,
+         message_type, radar_target_count, radar_targets_json),
     )
     db.commit()
     return cursor.lastrowid, received_at
@@ -250,3 +310,114 @@ def get_occupancy_total() -> tuple[int, str | None]:
     ).fetchone()
     total: int = row["total"] if row["total"] is not None else 0
     return max(0, total), row["updated_at"]
+
+
+# ---------------------------------------------------------------------------
+# Radar storage helpers
+# ---------------------------------------------------------------------------
+
+def upsert_radar_latest(
+    *,
+    device_id: str,
+    uptime_ms: int,
+    target_count: int,
+    targets: list[dict[str, Any]],
+) -> str:
+    """Update (or insert) the latest radar reading for a device.
+
+    Uses INSERT OR REPLACE so the row is always the most recent snapshot.
+    Returns the received_at timestamp.
+    """
+    received_at = _utc_now()
+    targets_json = json.dumps(targets)
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO radar_latest (device_id, uptime_ms, target_count, targets_json, received_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET
+            uptime_ms    = excluded.uptime_ms,
+            target_count = excluded.target_count,
+            targets_json = excluded.targets_json,
+            received_at  = excluded.received_at
+        """,
+        (device_id, uptime_ms, target_count, targets_json, received_at),
+    )
+    db.commit()
+    return received_at
+
+
+def insert_radar_reading_if_throttled(
+    *,
+    device_id: str,
+    uptime_ms: int,
+    target_count: int,
+    targets: list[dict[str, Any]],
+) -> bool:
+    """Insert a radar history record if at least 1 second has elapsed since
+    the last stored record for this device.  Returns True if a row was inserted.
+
+    This throttles the radar_readings table so it never stores more than one
+    row per device per second.
+    """
+    db = get_db()
+    row = db.execute(
+        "SELECT MAX(received_at) AS last_at FROM radar_readings WHERE device_id = ?",
+        (device_id,),
+    ).fetchone()
+
+    last_at: str | None = row["last_at"] if row else None
+
+    now = datetime.now(timezone.utc)
+
+    if last_at is not None:
+        try:
+            last_dt = datetime.fromisoformat(last_at)
+            elapsed = (now - last_dt).total_seconds()
+            if elapsed < 1.0:
+                return False
+        except ValueError:
+            pass  # Unparseable timestamp — allow the insert.
+
+    received_at = now.isoformat()
+    targets_json = json.dumps(targets)
+    db.execute(
+        """
+        INSERT INTO radar_readings (device_id, uptime_ms, target_count, targets_json, received_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (device_id, uptime_ms, target_count, targets_json, received_at),
+    )
+    db.commit()
+    return True
+
+
+def get_radar_latest_all() -> list[dict[str, Any]]:
+    """Return the latest radar snapshot for every known device."""
+    rows = get_db().execute(
+        "SELECT * FROM radar_latest ORDER BY device_id"
+    ).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["targets"] = json.loads(d.pop("targets_json"))
+        except (json.JSONDecodeError, TypeError):
+            d["targets"] = []
+        result.append(d)
+    return result
+
+
+def get_radar_latest_for_device(device_id: str) -> dict[str, Any] | None:
+    """Return the latest radar snapshot for a specific device, or None."""
+    row = get_db().execute(
+        "SELECT * FROM radar_latest WHERE device_id = ?", (device_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    try:
+        d["targets"] = json.loads(d.pop("targets_json"))
+    except (json.JSONDecodeError, TypeError):
+        d["targets"] = []
+    return d

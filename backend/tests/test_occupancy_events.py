@@ -272,3 +272,124 @@ def test_list_occupancy_events_contains_required_fields(client):
     for field in ("id", "device_id", "event_id", "event",
                   "count_change", "duration_ms", "uptime_ms", "received_at"):
         assert field in row, f"Missing field: {field}"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/occupancy/events — message_type field (optional)
+# ---------------------------------------------------------------------------
+
+def test_valid_message_type_occupancy_event_accepted(client):
+    payload = {**_unique_entry(200, "mt-pico"), "message_type": "occupancy_event"}
+    assert _post(client, payload).status_code == 201
+
+
+def test_wrong_message_type_returns_400(client):
+    payload = {**_unique_entry(201, "mt-pico"), "message_type": "radar"}
+    assert _post(client, payload).status_code == 400
+
+
+def test_wrong_message_type_error_message(client):
+    payload = {**_unique_entry(202, "mt-pico"), "message_type": "radar"}
+    data = _post(client, payload).get_json()
+    assert "message_type" in data["error"]
+
+
+def test_non_string_message_type_returns_400(client):
+    payload = {**_unique_entry(203, "mt-pico"), "message_type": 42}
+    assert _post(client, payload).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /api/occupancy/events — backward compatibility (no message_type/radar)
+# ---------------------------------------------------------------------------
+
+def test_backward_compat_no_message_type_accepted(client):
+    """Requests without message_type or radar must still be accepted."""
+    payload = _unique_entry(300, "compat-pico")
+    # Confirm neither optional field is present.
+    assert "message_type" not in payload
+    assert "radar" not in payload
+    assert _post(client, payload).status_code == 201
+
+
+def test_backward_compat_no_radar_accepted(client):
+    payload = {**_unique_entry(301, "compat-pico"), "message_type": "occupancy_event"}
+    assert "radar" not in payload
+    assert _post(client, payload).status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# POST /api/occupancy/events — radar snapshot field validation
+# ---------------------------------------------------------------------------
+
+def _entry_with_radar(event_id: int, radar: dict) -> dict:
+    return {
+        **_unique_entry(event_id, "radar-snap-pico"),
+        "message_type": "occupancy_event",
+        "radar": radar,
+    }
+
+
+def test_radar_snapshot_valid_stored(client):
+    payload = _entry_with_radar(400, {
+        "target_count": 1,
+        "targets": [
+            {"target_id": 1, "x_mm": 420, "y_mm": 1350,
+             "distance_mm": 1413.8, "angle_deg": 17.3, "speed_cm_s": -25},
+        ],
+    })
+    assert _post(client, payload).status_code == 201
+
+
+def test_radar_snapshot_0_targets_accepted(client):
+    payload = _entry_with_radar(401, {"target_count": 0, "targets": []})
+    assert _post(client, payload).status_code == 201
+
+
+def test_radar_snapshot_target_count_too_high_returns_400(client):
+    payload = _entry_with_radar(402, {
+        "target_count": 4,
+        "targets": [],
+    })
+    assert _post(client, payload).status_code == 400
+
+
+def test_radar_snapshot_target_count_mismatch_returns_400(client):
+    """radar.target_count says 2 but targets array has 0 items."""
+    payload = _entry_with_radar(403, {"target_count": 2, "targets": []})
+    assert _post(client, payload).status_code == 400
+
+
+def test_radar_snapshot_mismatch_error_message(client):
+    payload = _entry_with_radar(404, {"target_count": 2, "targets": []})
+    data = _post(client, payload).get_json()
+    assert "target_count" in data["error"]
+
+
+def test_radar_snapshot_non_object_returns_400(client):
+    payload = {
+        **_unique_entry(405, "radar-snap-pico"),
+        "message_type": "occupancy_event",
+        "radar": "not an object",
+    }
+    assert _post(client, payload).status_code == 400
+
+
+def test_radar_snapshot_missing_target_count_returns_400(client):
+    payload = _entry_with_radar(406, {"targets": []})
+    assert _post(client, payload).status_code == 400
+
+
+def test_radar_snapshot_missing_targets_returns_400(client):
+    payload = _entry_with_radar(407, {"target_count": 0})
+    assert _post(client, payload).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Existing duplicate-prevention is preserved with new fields
+# ---------------------------------------------------------------------------
+
+def test_duplicate_with_message_type_still_returns_409(client):
+    payload = {**_BASE_ENTRY, "event_id": 500, "message_type": "occupancy_event"}
+    _post(client, payload)
+    assert _post(client, payload).status_code == 409

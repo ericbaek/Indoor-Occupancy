@@ -671,3 +671,434 @@ SELECT * FROM occupancy_events ORDER BY id DESC LIMIT 10;
 SELECT SUM(count_change) AS occupancy FROM occupancy_events;
 ```
 
+---
+
+## mmWave Radar Integration
+
+This section documents the radar data pipeline added to complement the PIR
+occupancy events.
+
+---
+
+### Hardware Code Location
+
+The Raspberry Pi Pico firmware lives in:
+
+```
+sensor/
+├── PIR_and_mmWave.py   # Main firmware — PIR logic and radar output
+├── rd03d.py            # RD03D mmWave radar driver
+└── main.py             # Minimal radar-only test entry point
+```
+
+The Pico runs `PIR_and_mmWave.py` and writes JSON lines to stdout via `print()`.
+A host PC then reads those lines via USB serial and forwards them to the backend
+using `scripts/hardware_gateway.py`.
+
+---
+
+### Hardware JSON Message Formats
+
+The firmware produces two types of JSON messages.
+
+#### Radar message (`message_type: "radar"`)
+
+Emitted every 500 ms (controlled by `RADAR_SEND_INTERVAL_MS = 500`).
+
+```json
+{
+  "message_type": "radar",
+  "device_id": "doorway-pico-01",
+  "uptime_ms": 15200,
+  "target_count": 1,
+  "targets": [
+    {
+      "target_id": 1,
+      "x_mm": 420,
+      "y_mm": 1350,
+      "distance_mm": 1413.8,
+      "angle_deg": 17.3,
+      "speed_cm_s": -25
+    }
+  ]
+}
+```
+
+- Up to 3 targets per message.
+- Targets with all-zero values are filtered out by the firmware before serialisation.
+
+#### Occupancy event message (`message_type: "occupancy_event"`)
+
+Emitted only when a PIR crossing is detected (entry or exit).
+
+```json
+{
+  "message_type": "occupancy_event",
+  "device_id": "doorway-pico-01",
+  "event_id": 1,
+  "event": "entry",
+  "count_change": 1,
+  "duration_ms": 820,
+  "uptime_ms": 16400,
+  "radar": {
+    "target_count": 1,
+    "targets": []
+  }
+}
+```
+
+- `event_id` is a monotonically incrementing counter per device.
+- `count_change` is `1` for `"entry"` and `-1` for `"exit"`.
+- The `radar` field contains the most recent radar snapshot at the time of the
+  event — stored as a snapshot in `occupancy_events` and not treated as a live
+  radar update.
+
+---
+
+### API Endpoints — Summary
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/occupancy/events` | Store a PIR occupancy event (extended with optional `message_type` and `radar`) |
+| `GET`  | `/api/occupancy/current` | Current occupancy (sum of `count_change`, ≥ 0) |
+| `GET`  | `/api/occupancy/events` | List recent PIR events, newest first |
+| `GET`  | `/api/occupancy/status` | Unified status: occupancy + radar + confirmed/uncertain |
+| `POST` | `/api/radar/readings` | Store a radar reading |
+| `GET`  | `/api/radar/latest` | Latest radar snapshot for all devices |
+| `GET`  | `/api/radar/latest/<device_id>` | Latest radar snapshot for one device |
+
+---
+
+### Occupancy Event API — Extended Format
+
+`POST /api/occupancy/events` now accepts the full hardware format including the
+optional `message_type` and `radar` fields.
+
+**Backward compatibility:** Requests that omit `message_type` and `radar` are
+still accepted — this preserves compatibility with the earlier format.
+
+**Validation rules for new optional fields:**
+
+- If `message_type` is present, it must be `"occupancy_event"`.
+- If `radar` is present, it must be an object with:
+  - `target_count` (integer, 0–3)
+  - `targets` (array whose length equals `target_count`)
+
+---
+
+### Radar API
+
+#### `POST /api/radar/readings`
+
+Accepts a radar message from the gateway and stores it.
+
+**Validation rules:**
+- `message_type` must be `"radar"`.
+- `device_id` must be a non-empty string.
+- `uptime_ms` must be a number ≥ 0.
+- `target_count` must be an integer between 0 and 3.
+- `targets` must be an array of length equal to `target_count`.
+- Each target must contain: `target_id`, `x_mm`, `y_mm`, `distance_mm`,
+  `angle_deg`, `speed_cm_s` — all numeric and not boolean.
+
+**Success response (HTTP 201):**
+
+```json
+{
+  "success": true,
+  "message": "Radar reading recorded",
+  "data": {
+    "device_id": "doorway-pico-01",
+    "target_count": 1,
+    "received_at": "2026-07-16T02:30:00+00:00"
+  }
+}
+```
+
+#### `GET /api/radar/latest`
+
+Returns the latest radar snapshot for every known device.
+
+```json
+{
+  "devices": [
+    {
+      "device_id": "doorway-pico-01",
+      "uptime_ms": 15200,
+      "target_count": 1,
+      "targets": [
+        {
+          "target_id": 1,
+          "x_mm": 420,
+          "y_mm": 1350,
+          "distance_mm": 1413.8,
+          "angle_deg": 17.3,
+          "speed_cm_s": -25
+        }
+      ],
+      "received_at": "2026-07-16T02:30:00+00:00"
+    }
+  ]
+}
+```
+
+#### `GET /api/radar/latest/<device_id>`
+
+Returns the latest snapshot for a single device.  Returns HTTP 404 if no data
+has been received for that device.
+
+---
+
+### Radar Storage Policy
+
+The RD03D radar sends frames continuously.  The firmware throttles output to
+once every 500 ms via `RADAR_SEND_INTERVAL_MS`.  Even so, storing every message
+permanently would fill the database quickly with redundant data.
+
+The backend therefore uses a two-tier storage policy:
+
+**`radar_latest` table (always updated)**
+
+One row per `device_id`.  Every incoming radar message overwrites the previous
+row for that device.  This gives the frontend an always-current snapshot with
+no unbounded growth.
+
+**`radar_readings` table (throttled history)**
+
+At most one row per device per second is inserted.  If multiple messages arrive
+within one second, only the first is written to history; subsequent messages
+still update `radar_latest`.
+
+This keeps the history table small enough for long-term use while still
+providing a usable audit trail.
+
+**Occupancy radar snapshots**
+
+The `radar` field inside an `occupancy_event` is stored separately as part of
+the `occupancy_events` row (`radar_target_count`, `radar_targets_json`).  It
+represents the radar state at the exact moment a PIR crossing was detected and
+is independent of the rolling radar stream.
+
+---
+
+### Occupancy Status API
+
+#### `GET /api/occupancy/status`
+
+Returns a unified view of the current occupancy count and radar presence for
+use by the frontend dashboard.
+
+**Example response:**
+
+```json
+{
+  "occupancy": 3,
+  "status": "confirmed",
+  "radar_presence": true,
+  "radar_target_count": 1,
+  "last_occupancy_event_at": "2026-07-16T02:25:00+00:00",
+  "last_radar_update_at": "2026-07-16T02:29:55+00:00",
+  "mismatch_started_at": null
+}
+```
+
+**Status values:**
+
+| `status` | Meaning |
+|---|---|
+| `confirmed` | PIR occupancy count and radar presence agree (both zero, or both non-zero). |
+| `uncertain` | PIR and radar disagree — see `mismatch_started_at`. |
+
+**mmWave delay handling**
+
+The RD03D radar takes approximately 10 seconds to detect a stationary person
+after they enter a room.  This means there will routinely be a brief period
+where PIR has detected an entry but radar still shows zero targets.
+
+The backend deliberately does **not** auto-correct the occupancy count based on
+radar data.  The `status` field signals the disagreement, and `mismatch_started_at`
+records when it began so the frontend can decide how to display it (for example,
+showing a warning only after 30 seconds of disagreement).
+
+---
+
+### Hardware Gateway Script
+
+`scripts/hardware_gateway.py` bridges the Pico serial output to the backend.
+
+The Pico writes JSON lines to its USB serial port.  The gateway script reads
+those lines and routes each message to the correct backend endpoint.
+
+#### Stdin mode (for testing or piped input)
+
+```bash
+# From the backend/ directory with the virtual environment active:
+python scripts/hardware_gateway.py --mode stdin
+
+# Simulate a radar message:
+echo '{"message_type":"radar","device_id":"doorway-pico-01","uptime_ms":1000,"target_count":0,"targets":[]}' \
+    | python scripts/hardware_gateway.py --mode stdin
+
+# Pipe from a file of recorded messages:
+python scripts/hardware_gateway.py --mode stdin < recorded_output.jsonl
+```
+
+#### Serial mode (live hardware)
+
+```bash
+# Linux / macOS:
+python scripts/hardware_gateway.py --mode serial --port /dev/ttyACM0 --baudrate 115200
+
+# Windows (check Device Manager for the correct port):
+python scripts/hardware_gateway.py --mode serial --port COM3 --baudrate 115200
+```
+
+> **Baud rate note:** The Pico's internal UART to the RD03D radar uses 256 000 baud.
+> The USB CDC serial port presented to the host PC always runs at 115 200 baud —
+> this is what the gateway script connects to.
+
+#### Backend URL
+
+Override the backend URL with `--url` or the `BACKEND_URL` environment variable:
+
+```bash
+# Via argument:
+python scripts/hardware_gateway.py --mode stdin --url http://192.168.1.10:5000
+
+# Via environment variable:
+export BACKEND_URL=http://192.168.1.10:5000
+python scripts/hardware_gateway.py --mode stdin
+```
+
+The default is `http://localhost:5000`.
+
+---
+
+### Radar Test Data Script
+
+`scripts/send_radar_test_data.py` sends a set of pre-built test payloads to the
+backend without needing real hardware.
+
+```bash
+# Backend must be running first:
+python run.py
+
+# In a separate terminal (from the backend/ directory):
+python scripts/send_radar_test_data.py
+```
+
+The script covers:
+- Radar with 0, 1, and 3 targets
+- Occupancy entry and exit events with radar snapshots
+- Backward-compatible format (no `message_type` or `radar`)
+- Invalid payloads that should be rejected (to confirm validation works)
+- Querying all status endpoints
+
+---
+
+### curl Examples — Radar and Status
+
+#### Send a radar reading
+
+```bash
+curl -X POST http://localhost:5000/api/radar/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message_type": "radar",
+    "device_id": "doorway-pico-01",
+    "uptime_ms": 15200,
+    "target_count": 1,
+    "targets": [
+      {"target_id": 1, "x_mm": 420, "y_mm": 1350,
+       "distance_mm": 1413.8, "angle_deg": 17.3, "speed_cm_s": -25}
+    ]
+  }'
+```
+
+#### Get latest radar for all devices
+
+```bash
+curl http://localhost:5000/api/radar/latest
+```
+
+#### Get latest radar for one device
+
+```bash
+curl http://localhost:5000/api/radar/latest/doorway-pico-01
+```
+
+#### Send a PIR occupancy event (new full format)
+
+```bash
+curl -X POST http://localhost:5000/api/occupancy/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message_type": "occupancy_event",
+    "device_id": "doorway-pico-01",
+    "event_id": 1,
+    "event": "entry",
+    "count_change": 1,
+    "duration_ms": 820,
+    "uptime_ms": 16400,
+    "radar": {"target_count": 0, "targets": []}
+  }'
+```
+
+#### Get unified occupancy status
+
+```bash
+curl http://localhost:5000/api/occupancy/status
+```
+
+---
+
+### Running the Full Test Suite
+
+```bash
+# From the backend/ directory with the virtual environment active:
+pytest -v
+```
+
+All 120 tests should pass.  The test suite includes:
+- All pre-existing tests (sensor events, room state, PIR occupancy)
+- New radar endpoint tests (`test_radar.py`)
+- New occupancy status tests (`test_occupancy_status.py`)
+- Gateway unit tests (`test_gateway.py`)
+- Extended occupancy event tests (message_type, radar snapshot, backward compat)
+
+New test files use function-scoped database fixtures so every test runs in full
+isolation regardless of order.
+
+---
+
+### SQLite Database — New Tables
+
+**`radar_latest`** — current radar snapshot per device:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `device_id` | TEXT PRIMARY KEY | Hardware device identifier |
+| `uptime_ms` | INTEGER | Device uptime at time of reading |
+| `target_count` | INTEGER | Number of detected targets |
+| `targets_json` | TEXT | JSON array of target objects |
+| `received_at` | TEXT | UTC ISO 8601 timestamp (backend-generated) |
+
+**`radar_readings`** — throttled radar history (at most 1 row/device/second):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-increment primary key |
+| `device_id` | TEXT | Hardware device identifier |
+| `uptime_ms` | INTEGER | Device uptime at time of reading |
+| `target_count` | INTEGER | Number of detected targets |
+| `targets_json` | TEXT | JSON array of target objects |
+| `received_at` | TEXT | UTC ISO 8601 timestamp |
+
+**`occupancy_events`** — extended with three new columns (safe migration applied
+on startup; existing data is preserved):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `message_type` | TEXT | `"occupancy_event"` if present in the hardware JSON |
+| `radar_target_count` | INTEGER | Target count from the embedded radar snapshot |
+| `radar_targets_json` | TEXT | JSON array of targets from the embedded radar snapshot |

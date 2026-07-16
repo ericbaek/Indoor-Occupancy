@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from typing import Any
+
 from flask import Blueprint, jsonify, request
 
 from .database import (
@@ -7,15 +11,30 @@ from .database import (
     get_events,
     get_occupancy_events,
     get_occupancy_total,
+    get_radar_latest_all,
+    get_radar_latest_for_device,
     get_room_state,
     insert_event,
     insert_occupancy_event,
+    insert_radar_reading_if_throttled,
     reset_room,
+    upsert_radar_latest,
 )
 from .occupancy import compute_new_count, get_occupancy_level
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
+# ---------------------------------------------------------------------------
+# In-memory mismatch tracking for the /api/occupancy/status endpoint.
+# Keyed by device_id → ISO timestamp string when mismatch began (or None).
+# This is a simple prototype-level approach; no persistence across restarts.
+# ---------------------------------------------------------------------------
+_mismatch_started_at: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
 @api.get("/health")
 def health():
@@ -26,6 +45,10 @@ def health():
         db_status = "error"
     return jsonify({"status": "ok", "database": db_status}), 200
 
+
+# ---------------------------------------------------------------------------
+# Legacy sensor events (room-based)
+# ---------------------------------------------------------------------------
 
 @api.post("/events")
 def post_event():
@@ -173,7 +196,12 @@ _EVENT_COUNT_CHANGE = {"entry": 1, "exit": -1}
 
 @api.post("/occupancy/events")
 def post_occupancy_event():
-    """Accept and store a PIR doorway occupancy event from hardware."""
+    """Accept and store a PIR doorway occupancy event from hardware.
+
+    The hardware JSON format includes optional 'message_type' and 'radar'
+    fields.  Requests that omit these fields (older format) are still accepted
+    for backward compatibility.
+    """
     if not request.is_json:
         return jsonify({"error": "Request body must be JSON"}), 400
 
@@ -240,8 +268,54 @@ def post_occupancy_event():
         return jsonify({"error": "uptime_ms must be zero or greater"}), 400
     uptime_ms: int = raw_uptime
 
+    # --- Optional: message_type ---
+    message_type: str | None = None
+    if "message_type" in data:
+        raw_mt = data["message_type"]
+        if not isinstance(raw_mt, str):
+            return jsonify({"error": "message_type must be a string"}), 400
+        if raw_mt != "occupancy_event":
+            return jsonify({
+                "error": "message_type must be 'occupancy_event' for this endpoint"
+            }), 400
+        message_type = raw_mt
+
+    # --- Optional: radar snapshot ---
+    radar_target_count: int | None = None
+    radar_targets_json: str | None = None
+
+    if "radar" in data:
+        radar = data["radar"]
+        if not isinstance(radar, dict):
+            return jsonify({"error": "radar must be an object"}), 400
+
+        # radar.target_count
+        raw_rtc = radar.get("target_count")
+        if raw_rtc is None:
+            return jsonify({"error": "radar.target_count is required"}), 400
+        if isinstance(raw_rtc, bool) or not isinstance(raw_rtc, int):
+            return jsonify({"error": "radar.target_count must be an integer"}), 400
+        if raw_rtc < 0 or raw_rtc > 3:
+            return jsonify({"error": "radar.target_count must be between 0 and 3"}), 400
+        radar_target_count = raw_rtc
+
+        # radar.targets
+        raw_targets = radar.get("targets")
+        if raw_targets is None:
+            return jsonify({"error": "radar.targets is required"}), 400
+        if not isinstance(raw_targets, list):
+            return jsonify({"error": "radar.targets must be an array"}), 400
+        if len(raw_targets) != radar_target_count:
+            return jsonify({
+                "error": (
+                    f"radar.target_count ({radar_target_count}) does not match "
+                    f"length of radar.targets ({len(raw_targets)})"
+                )
+            }), 400
+        radar_targets_json = json.dumps(raw_targets)
+
     # --- Store event ---
-    import sqlite3
+    import sqlite3 as _sqlite3
     try:
         _row_id, received_at = insert_occupancy_event(
             device_id=device_id,
@@ -250,8 +324,11 @@ def post_occupancy_event():
             count_change=count_change,
             duration_ms=duration_ms,
             uptime_ms=uptime_ms,
+            message_type=message_type,
+            radar_target_count=radar_target_count,
+            radar_targets_json=radar_targets_json,
         )
-    except sqlite3.IntegrityError:
+    except _sqlite3.IntegrityError:
         return jsonify({
             "error": (
                 f"Duplicate event: device_id '{device_id}' and "
@@ -291,3 +368,200 @@ def list_occupancy_events():
 
     events = get_occupancy_events(limit=limit)
     return jsonify({"events": events}), 200
+
+
+# ---------------------------------------------------------------------------
+# Radar readings
+# ---------------------------------------------------------------------------
+
+_REQUIRED_TARGET_FIELDS = (
+    "target_id", "x_mm", "y_mm", "distance_mm", "angle_deg", "speed_cm_s"
+)
+_NUMERIC_TARGET_FIELDS = (
+    "target_id", "x_mm", "y_mm", "distance_mm", "angle_deg", "speed_cm_s"
+)
+
+
+def _validate_target(target: Any, index: int) -> str | None:
+    """Validate a single radar target dict.  Returns an error string or None."""
+    if not isinstance(target, dict):
+        return f"targets[{index}] must be an object"
+    for field in _REQUIRED_TARGET_FIELDS:
+        if field not in target:
+            return f"targets[{index}] is missing required field '{field}'"
+    for field in _NUMERIC_TARGET_FIELDS:
+        val = target[field]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            return f"targets[{index}].{field} must be a number"
+    return None
+
+
+@api.post("/radar/readings")
+def post_radar_reading():
+    """Accept and store a radar reading from hardware (via the gateway script)."""
+    if not request.is_json:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid or empty JSON body"}), 400
+
+    # --- message_type ---
+    if data.get("message_type") != "radar":
+        return jsonify({"error": "message_type must be 'radar'"}), 400
+
+    # --- device_id ---
+    raw_device = data.get("device_id", "")
+    if not isinstance(raw_device, str) or not raw_device.strip():
+        return jsonify({"error": "device_id must be a non-empty string"}), 400
+    device_id = raw_device.strip()
+
+    # --- uptime_ms ---
+    raw_uptime = data.get("uptime_ms")
+    if raw_uptime is None:
+        return jsonify({"error": "Missing required field: uptime_ms"}), 400
+    if isinstance(raw_uptime, bool) or not isinstance(raw_uptime, (int, float)):
+        return jsonify({"error": "uptime_ms must be a number"}), 400
+    if raw_uptime < 0:
+        return jsonify({"error": "uptime_ms must be zero or greater"}), 400
+    uptime_ms = int(raw_uptime)
+
+    # --- target_count ---
+    raw_tc = data.get("target_count")
+    if raw_tc is None:
+        return jsonify({"error": "Missing required field: target_count"}), 400
+    if isinstance(raw_tc, bool) or not isinstance(raw_tc, int):
+        return jsonify({"error": "target_count must be an integer"}), 400
+    if raw_tc < 0 or raw_tc > 3:
+        return jsonify({"error": "target_count must be between 0 and 3"}), 400
+    target_count = raw_tc
+
+    # --- targets ---
+    raw_targets = data.get("targets")
+    if raw_targets is None:
+        return jsonify({"error": "Missing required field: targets"}), 400
+    if not isinstance(raw_targets, list):
+        return jsonify({"error": "targets must be an array"}), 400
+    if len(raw_targets) != target_count:
+        return jsonify({
+            "error": (
+                f"target_count ({target_count}) does not match "
+                f"length of targets ({len(raw_targets)})"
+            )
+        }), 400
+
+    for i, target in enumerate(raw_targets):
+        err = _validate_target(target, i)
+        if err:
+            return jsonify({"error": err}), 400
+
+    # --- Persist ---
+    received_at = upsert_radar_latest(
+        device_id=device_id,
+        uptime_ms=uptime_ms,
+        target_count=target_count,
+        targets=raw_targets,
+    )
+    insert_radar_reading_if_throttled(
+        device_id=device_id,
+        uptime_ms=uptime_ms,
+        target_count=target_count,
+        targets=raw_targets,
+    )
+
+    return jsonify({
+        "success": True,
+        "message": "Radar reading recorded",
+        "data": {
+            "device_id": device_id,
+            "target_count": target_count,
+            "received_at": received_at,
+        },
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# Radar query endpoints
+# ---------------------------------------------------------------------------
+
+@api.get("/radar/latest")
+def get_radar_latest():
+    """Return the latest radar snapshot for all known devices."""
+    devices = get_radar_latest_all()
+    return jsonify({"devices": devices}), 200
+
+
+@api.get("/radar/latest/<device_id>")
+def get_radar_latest_device(device_id: str):
+    """Return the latest radar snapshot for a specific device."""
+    device_id = device_id.strip()
+    snapshot = get_radar_latest_for_device(device_id)
+    if snapshot is None:
+        return jsonify({
+            "error": f"No radar data found for device_id '{device_id}'"
+        }), 404
+    return jsonify(snapshot), 200
+
+
+# ---------------------------------------------------------------------------
+# Unified occupancy status endpoint (for the frontend)
+# ---------------------------------------------------------------------------
+
+@api.get("/occupancy/status")
+def get_occupancy_status():
+    """Return a unified view of PIR occupancy and radar presence.
+
+    Status rules:
+    - 'confirmed'  when occupancy count and radar presence agree.
+    - 'uncertain'  when they disagree (e.g. occupancy > 0 but no radar
+                   targets, or occupancy = 0 but radar sees targets).
+
+    The mismatch_started_at timestamp records when the disagreement began.
+    Note: radar data alone never causes the occupancy count to change
+    automatically — this is intentional to account for the ~10-second
+    mmWave detection delay.
+    """
+    global _mismatch_started_at
+
+    occupancy, last_occupancy_event_at = get_occupancy_total()
+
+    # Aggregate radar across all devices — use the device with the highest
+    # target_count as the representative snapshot.
+    devices = get_radar_latest_all()
+    radar_target_count = 0
+    last_radar_update_at: str | None = None
+
+    for dev in devices:
+        if dev["target_count"] > radar_target_count:
+            radar_target_count = dev["target_count"]
+        if last_radar_update_at is None or dev["received_at"] > last_radar_update_at:
+            last_radar_update_at = dev["received_at"]
+
+    radar_presence = radar_target_count > 0
+
+    # Determine confirmed vs uncertain.
+    occupancy_present = occupancy > 0
+    agreed = (occupancy_present == radar_presence)
+
+    now_str = datetime.now(timezone.utc).isoformat()
+
+    if agreed:
+        status = "confirmed"
+        _mismatch_started_at = None
+    else:
+        status = "uncertain"
+        if _mismatch_started_at is None:
+            _mismatch_started_at = now_str
+
+    return jsonify({
+        "occupancy": occupancy,
+        "status": status,
+        "radar_presence": radar_presence,
+        "radar_target_count": radar_target_count,
+        "last_occupancy_event_at": last_occupancy_event_at,
+        "last_radar_update_at": last_radar_update_at,
+        "mismatch_started_at": _mismatch_started_at,
+    }), 200
+
+
+
