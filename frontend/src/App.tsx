@@ -117,17 +117,6 @@ function App() {
               <RadarScope targets={data.radarTargets} />
             </section>
 
-            {/* Rooms and alerts below are mock — no multi-room or alerting
-                support in the backend yet. */}
-            <section className="lower-grid">
-              <RoomList rooms={rooms} />
-              <AlertsPanel alerts={alerts} />
-            </section>
-
-            <section style={{ marginBottom: 14 }}>
-              <SensorTable nodes={sensorNodes} />
-            </section>
-
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
