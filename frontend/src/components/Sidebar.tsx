@@ -19,7 +19,7 @@ export default function Sidebar() {
           <span className="brand-dot" />
         </span>
         <div>
-          <div className="brand-name">Sentry</div>
+          <div className="brand-name">Room Sense</div>
           <div className="brand-sub">Occupancy Intelligence</div>
         </div>
       </div>
@@ -32,15 +32,6 @@ export default function Sidebar() {
           </button>
         ))}
       </nav>
-
-      <div className="sidebar-footer">
-        <div className="privacy-card">
-          <ShieldCheck size={18} strokeWidth={2} />
-          <div className="privacy-title">No cameras. No MAC IDs.</div>
-          <p>Occupancy is inferred from CO&#8322;, motion and mmWave signal only &mdash; never identity.</p>
-        </div>
-        <div className="building-tag">CSE Building &middot; Team Football</div>
-      </div>
     </aside>
   );
 }

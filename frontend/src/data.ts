@@ -33,6 +33,51 @@ export type Alert = {
 
 export type OccupancyPoint = { t: string; count: number };
 
+// ---------------------------------------------------------------------------
+// Real backend types — these mirror the actual JSON shapes returned by the
+// Flask API (see backend/app/routes.py). Unlike the mock types above, these
+// are not fabricated — they exist because the backend genuinely provides
+// this data (single doorway, PIR + mmWave radar, no rooms/CO2/battery yet).
+// ---------------------------------------------------------------------------
+
+export type BackendRadarTarget = {
+  target_id: number;
+  x_mm: number;
+  y_mm: number;
+  distance_mm: number;
+  angle_deg: number;
+  speed_cm_s: number;
+};
+
+export type RadarDevice = {
+  device_id: string;
+  uptime_ms: number;
+  target_count: number;
+  targets: BackendRadarTarget[];
+  received_at: string;
+};
+
+export type OccupancyStatus = {
+  occupancy: number;
+  status: "confirmed" | "uncertain";
+  radar_presence: boolean;
+  radar_target_count: number;
+  last_occupancy_event_at: string | null;
+  last_radar_update_at: string | null;
+  mismatch_started_at: string | null;
+};
+
+export type OccupancyEvent = {
+  id: number;
+  device_id: string;
+  event_id: number;
+  event: "entry" | "exit";
+  count_change: number;
+  duration_ms: number;
+  uptime_ms: number;
+  received_at: string;
+};
+
 // Live radar targets — shape matches the RD-03D UART frame the team is
 // parsing in Thonny (angle / distance / speed per target, up to 3).
 export const radarTargets: RadarTarget[] = [
