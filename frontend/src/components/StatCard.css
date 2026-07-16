@@ -18,7 +18,7 @@
 .stat-icon-amber  { background: var(--amber-dim); color: var(--amber); }
 .stat-icon-red    { background: var(--red-dim); color: var(--red); }
 .stat-icon-blue   { background: var(--blue-dim); color: var(--blue); }
-.stat-icon-neutral{ background: #EEF0F0; color: var(--text-dim); }
+.stat-icon-neutral{ background: var(--neutral-dim); color: var(--text-dim); }
 
 .stat-label {
   font-size: 12px;
@@ -72,5 +72,5 @@
 .stat-tag-red .stat-tag-dot { background: var(--red); }
 .stat-tag-blue { background: var(--blue-dim); color: #2C55AD; }
 .stat-tag-blue .stat-tag-dot { background: var(--blue); }
-.stat-tag-neutral { background: #EEF0F0; color: var(--text-dim); }
+.stat-tag-neutral { background: var(--neutral-dim); color: var(--text-dim); }
 .stat-tag-neutral .stat-tag-dot { background: var(--text-faint); }

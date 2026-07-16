@@ -53,13 +53,13 @@ export default function OccupancyChart({
               <stop offset="100%" stopColor="#17B3A3" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 5" stroke="#E4E8E6" vertical={false} />
-          <XAxis dataKey="t" tick={{ fontSize: 11, fill: "#939BA5" }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#939BA5" }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
+          <CartesianGrid strokeDasharray="3 5" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="t" tick={{ fontSize: 11, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
           <ReferenceLine y={capacity} stroke="#C2432B" strokeDasharray="4 4" label={{ value: `Capacity (${capacity})`, position: "insideTopRight", fill: "#C2432B", fontSize: 10.5 }} />
           <Tooltip
-            contentStyle={{ borderRadius: 10, border: "1px solid #E4E8E6", fontSize: 12, fontFamily: "Inter" }}
-            labelStyle={{ fontWeight: 600 }}
+            contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12, fontFamily: "Inter" }}
+            labelStyle={{ fontWeight: 600, color: "var(--text)" }}
           />
           <Area type="monotone" dataKey="count" stroke="#17B3A3" strokeWidth={2.25} fill="url(#occFill)" name="People" isAnimationActive={false} />
         </AreaChart>

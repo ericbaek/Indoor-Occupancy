@@ -1,7 +1,7 @@
-import { LayoutGrid, DoorOpen, Radar, BellRing, FileBarChart, Settings, ShieldCheck } from "lucide-react";
+import { LayoutGrid, DoorOpen, Radar, BellRing, FileBarChart, Settings } from "lucide-react";
 import "./Sidebar.css";
 
-export const NAV_ITEMS = ["Dashboard", "Rooms", "Sensors", "Alerts", "Reports", "Settings"] as const;
+const NAV_ITEMS = ["Dashboard", "Rooms", "Sensors", "Alerts", "Reports", "Settings"] as const;
 export type NavItem = (typeof NAV_ITEMS)[number];
 
 const NAV = [
