@@ -1,12 +1,12 @@
 import { ChevronDown, Sun } from "lucide-react";
 import "./Topbar.css";
 
-export default function Topbar() {
+export default function Topbar({ title, sub }: { title: string; sub: string }) {
   return (
     <header className="topbar">
       <div>
-        <h1 className="topbar-title">Dashboard</h1>
-        <p className="topbar-sub">Real-time occupancy across CSE teaching spaces</p>
+        <h1 className="topbar-title">{title}</h1>
+        <p className="topbar-sub">{sub}</p>
       </div>
       <div className="topbar-actions">
         <button className="icon-btn" aria-label="Toggle theme">

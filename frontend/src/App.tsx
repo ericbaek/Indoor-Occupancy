@@ -1,12 +1,15 @@
-import { Users, Radar, ShieldCheck, ShieldAlert, Clock3 } from "lucide-react";
-import Sidebar from "./components/Sidebar";
+import { useState } from "react";
+import { Users, Radar, Clock3, FileBarChart, Settings } from "lucide-react";
+import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
+import DetectionStatusCard from "./components/DetectionStatusCard";
 import RadarScope from "./components/RadarScope";
 import OccupancyChart from "./components/OccupancyChart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
+import PlaceholderPage from "./components/PlaceholderPage";
 // Rooms, sensor nodes (CO2/battery), and alerts have no backend support yet
 // (the real system is a single doorway, not multi-room) — these stay mock
 // until that data model exists on the backend.
@@ -14,7 +17,17 @@ import { sensorNodes, rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
 import "./App.css";
 
+const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
+  Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
+  Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
+  Sensors: { title: "Sensors", sub: "Live node status: CO\u2082, PIR, mmWave (mock)" },
+  Alerts: { title: "Alerts", sub: "Capacity, air quality and connectivity events (mock)" },
+  Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
+  Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
+};
+
 function App() {
+  const [page, setPage] = useState<NavItem>("Dashboard");
   const data = useOccupancyData();
 
   const activeTargets = data.radarTargets.length;
@@ -26,70 +39,107 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar active={page} onNavigate={setPage} />
       <main className="app-main">
-        <Topbar />
+        <Topbar title={TOPBAR_COPY[page].title} sub={TOPBAR_COPY[page].sub} />
 
-        {data.error && (
-          <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>
-            Live data unavailable ({data.error}) — showing last known values.
-          </p>
+        {page === "Dashboard" && (
+          <>
+            {data.error && (
+              <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>
+                Live data unavailable ({data.error}) — showing last known values.
+              </p>
+            )}
+
+            <section className="stat-grid">
+              <StatCard
+                icon={<Users size={17} strokeWidth={2} />}
+                label="Current occupancy"
+                value={String(data.occupancy)}
+                sub="PIR entry/exit count"
+                tone="signal"
+                tag={data.isLive ? "Live" : "Offline"}
+              />
+              <DetectionStatusCard
+                status={data.status}
+                occupancy={data.occupancy}
+                radarPresence={data.radarPresence}
+                radarTargetCount={data.radarTargetCount}
+                mismatchStartedAt={data.mismatchStartedAt}
+              />
+              <StatCard
+                icon={<Radar size={17} strokeWidth={2} />}
+                label="Radar presence"
+                value={data.radarPresence ? "Detected" : "None"}
+                sub={`${data.radarTargetCount} target${data.radarTargetCount === 1 ? "" : "s"} (mmWave)`}
+                tone={data.radarPresence ? "amber" : "neutral"}
+                tag={data.radarPresence ? "Radar active" : "Clear"}
+              />
+              <StatCard
+                icon={<Clock3 size={17} strokeWidth={2} />}
+                label="Last updated"
+                value={lastUpdatedLabel}
+                sub="Polling every 3s"
+                tone="blue"
+                tag={data.isLive ? "Live" : "Stale"}
+              />
+            </section>
+
+            <section className="mid-grid">
+              <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
+              <RadarScope targets={data.radarTargets} />
+            </section>
+
+            {/* Rooms and alerts below are mock — no multi-room or alerting
+                support in the backend yet. */}
+            <section className="lower-grid">
+              <RoomList rooms={rooms} />
+              <AlertsPanel alerts={alerts} />
+            </section>
+
+            <section style={{ marginBottom: 14 }}>
+              <SensorTable nodes={sensorNodes} />
+            </section>
+
+            <p className="app-footer">
+              {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
+            </p>
+          </>
         )}
 
-        <section className="stat-grid">
-          <StatCard
-            icon={<Users size={17} strokeWidth={2} />}
-            label="Current occupancy"
-            value={String(data.occupancy)}
-            sub="PIR entry/exit count"
-            tone="signal"
-            tag={data.isLive ? "Live" : "Offline"}
-          />
-          <StatCard
-            icon={data.status === "confirmed" ? <ShieldCheck size={17} strokeWidth={2} /> : <ShieldAlert size={17} strokeWidth={2} />}
-            label="Detection status"
-            value={data.status === "confirmed" ? "Confirmed" : data.status === "uncertain" ? "Uncertain" : "—"}
-            sub="PIR + radar agreement"
-            tone={data.status === "confirmed" ? "blue" : "amber"}
-            tag={data.status === "uncertain" ? "Mismatch" : "In sync"}
-          />
-          <StatCard
-            icon={<Radar size={17} strokeWidth={2} />}
-            label="Radar presence"
-            value={data.radarPresence ? "Detected" : "None"}
-            sub={`${data.radarTargetCount} target${data.radarTargetCount === 1 ? "" : "s"} (mmWave)`}
-            tone={data.radarPresence ? "amber" : "neutral"}
-            tag={data.radarPresence ? "Radar active" : "Clear"}
-          />
-          <StatCard
-            icon={<Clock3 size={17} strokeWidth={2} />}
-            label="Last updated"
-            value={lastUpdatedLabel}
-            sub="Polling every 3s"
-            tone="blue"
-            tag={data.isLive ? "Live" : "Stale"}
-          />
-        </section>
+        {page === "Rooms" && (
+          <section style={{ maxWidth: 640 }}>
+            <RoomList rooms={rooms} />
+          </section>
+        )}
 
-        <section className="mid-grid">
-          <OccupancyChart data={data.occupancySeries} capacity={40} />
-          <RadarScope targets={data.radarTargets} />
-        </section>
+        {page === "Sensors" && (
+          <section>
+            <SensorTable nodes={sensorNodes} />
+          </section>
+        )}
 
-        {/* Rooms and alerts below are mock — no multi-room or alerting
-            support in the backend yet. */}
-        <section className="lower-grid">
-          <RoomList rooms={rooms} />
-          <AlertsPanel alerts={alerts} />
-        </section>
+        {page === "Alerts" && (
+          <section style={{ maxWidth: 640 }}>
+            <AlertsPanel alerts={alerts} />
+          </section>
+        )}
 
-        <section style={{ marginBottom: 14 }}>
-          <SensorTable nodes={sensorNodes} />
-        </section>
+        {page === "Reports" && (
+          <PlaceholderPage
+            icon={FileBarChart}
+            title="Reports coming soon"
+            blurb="Exportable occupancy summaries and evaluation-metric reports (MAE, RMSE, fusion gain) will live here once historical backend queries are in."
+          />
+        )}
 
-        <p className="app-footer">
-          {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
-        </p>
+        {page === "Settings" && (
+          <PlaceholderPage
+            icon={Settings}
+            title="Settings coming soon"
+            blurb="Configure per-room occupancy limits, CO₂/PIR/mmWave thresholds, and privacy consent mode."
+          />
+        )}
       </main>
     </div>
   );

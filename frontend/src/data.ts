@@ -33,6 +33,8 @@ export type Alert = {
 
 export type OccupancyPoint = { t: string; count: number };
 
+export type OccupancyRange = "1H" | "6H" | "1D" | "1W" | "1M";
+
 // ---------------------------------------------------------------------------
 // Real backend types — these mirror the actual JSON shapes returned by the
 // Flask API (see backend/app/routes.py). Unlike the mock types above, these
@@ -103,13 +105,6 @@ export const rooms: RoomState[] = [
 
 export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
-  { id: "a2", kind: "co2", title: "High CO\u2082 level", detail: "K17-102 CO\u2082 reading is high (980 ppm)", time: "10:18 AM" },
+  { id: "a2", kind: "co2", title: "High CO₂ level", detail: "K17-102 CO₂ reading is high (980 ppm)", time: "10:18 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
-];
-
-export const occupancySeries: OccupancyPoint[] = [
-  { t: "12A", count: 4 }, { t: "2A", count: 3 }, { t: "4A", count: 2 },
-  { t: "6A", count: 5 }, { t: "8A", count: 14 }, { t: "10A", count: 21 },
-  { t: "12P", count: 26 }, { t: "2P", count: 30 }, { t: "4P", count: 25 },
-  { t: "6P", count: 18 }, { t: "8P", count: 9 }, { t: "10P", count: 4 },
 ];
