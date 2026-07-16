@@ -3,7 +3,7 @@ import AppLayout from "../layouts/AppLayout";
 export default function Dashboard() {
   const cards = [
     ["Current Occupancy", "18", "Room Available"],
-    ["CO₂ Level", "640", "ppm"],
+    ["Radar Presence", "Detected", "mmWave active"],
     ["Temperature", "23°C", "Normal"],
     ["Motion", "Yes", "PIR detected"],
   ];

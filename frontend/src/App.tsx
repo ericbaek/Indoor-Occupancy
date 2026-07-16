@@ -10,7 +10,7 @@ import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
 import PlaceholderPage from "./components/PlaceholderPage";
-// Rooms, sensor nodes (CO2/battery), and alerts have no backend support yet
+// Rooms, sensor nodes, and alerts have no backend support yet
 // (the real system is a single doorway, not multi-room) — these stay mock
 // until that data model exists on the backend.
 import { sensorNodes, rooms, alerts } from "./data";
@@ -20,8 +20,8 @@ import "./App.css";
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
   Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
-  Sensors: { title: "Sensors", sub: "Live node status: CO\u2082, PIR, mmWave (mock)" },
-  Alerts: { title: "Alerts", sub: "Capacity, air quality and connectivity events (mock)" },
+  Sensors: { title: "Sensors", sub: "Live node status: PIR and mmWave" },
+  Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
   Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
   Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
 };
@@ -153,7 +153,7 @@ function App() {
           <PlaceholderPage
             icon={Settings}
             title="Settings coming soon"
-            blurb="Configure per-room occupancy limits, CO₂/PIR/mmWave thresholds, and privacy consent mode."
+            blurb="Configure per-room occupancy limits, PIR/mmWave thresholds, and privacy consent mode."
           />
         )}
       </main>

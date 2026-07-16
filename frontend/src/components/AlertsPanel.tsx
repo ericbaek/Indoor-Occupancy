@@ -1,10 +1,9 @@
-import { AlertTriangle, Flame, WifiOff } from "lucide-react";
+import { AlertTriangle, WifiOff } from "lucide-react";
 import type { Alert } from "../data";
 import "./AlertsPanel.css";
 
 const ICONS: Record<Alert["kind"], typeof AlertTriangle> = {
   capacity: AlertTriangle,
-  co2: Flame,
   offline: WifiOff,
 };
 

@@ -30,7 +30,6 @@
   flex: none;
 }
 .alert-icon-capacity { background: var(--red-dim); color: var(--red); }
-.alert-icon-co2 { background: var(--amber-dim); color: var(--amber); }
 .alert-icon-offline { background: var(--blue-dim); color: var(--blue); }
 
 .alert-body { flex: 1; min-width: 0; }

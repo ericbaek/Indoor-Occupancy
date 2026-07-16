@@ -23,15 +23,6 @@ export default function Settings() {
           </div>
 
           <div>
-            <label className="text-slate-300">CO₂ Alert Threshold</label>
-            <input
-              type="number"
-              defaultValue="1000"
-              className="mt-2 w-full rounded-xl border border-emerald-400/20 bg-[#07130f] px-4 py-3 text-white outline-none focus:border-emerald-400"
-            />
-          </div>
-
-          <div>
             <label className="text-slate-300">Refresh Interval</label>
             <select className="mt-2 w-full rounded-xl border border-emerald-400/20 bg-[#07130f] px-4 py-3 text-white outline-none focus:border-emerald-400">
               <option>Every 5 seconds</option>

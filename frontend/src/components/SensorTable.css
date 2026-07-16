@@ -12,12 +12,15 @@
 }
 
 .sensor-row {
-  min-width: 640px;
-}
-
-.sensor-row {
   display: grid;
-  grid-template-columns: 92px 76px 76px 70px 70px 70px 90px 84px;
+  min-width: 500px;
+  grid-template-columns:
+    minmax(92px, 1.3fr)
+    minmax(76px, 1fr)
+    minmax(70px, 1fr)
+    minmax(70px, 1fr)
+    minmax(70px, 1fr)
+    minmax(90px, 1.2fr);
   align-items: center;
   gap: 6px;
   padding: 10px 0;
@@ -44,9 +47,6 @@
   font-family: var(--font-mono);
 }
 
-.sensor-co2-warm { color: var(--amber); font-weight: 600; }
-.sensor-co2-hot { color: var(--red); font-weight: 600; }
-
 .sensor-yes { color: #0E8477; font-weight: 600; }
 .sensor-no { color: var(--text-faint); }
 
@@ -61,10 +61,3 @@
 .sensor-status-online .sensor-status-dot { background: var(--signal); }
 .sensor-status-offline { color: #9B331F; }
 .sensor-status-offline .sensor-status-dot { background: var(--red); }
-
-.sensor-battery {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-dim);
-}

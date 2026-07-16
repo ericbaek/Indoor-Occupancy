@@ -166,7 +166,7 @@ function buildAllRangeSeries(eventsChronological: OccupancyEvent[]): Record<Occu
 
 /**
  * Single source of truth for live occupancy/radar data, polled from the
- * real Flask backend. Rooms, sensor nodes (CO2/battery), and alerts are
+ * real Flask backend. Rooms, sensor nodes, and alerts are
  * NOT included here — the backend doesn't model those yet, so components
  * that need them still read the mock arrays directly from `../data`.
  */

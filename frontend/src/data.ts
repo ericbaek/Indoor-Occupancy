@@ -8,12 +8,10 @@ export type RadarTarget = {
 export type SensorNode = {
   id: string;
   room: string;
-  co2: number;
   pirOut: boolean;
   pirIn: boolean;
   mmwaveTargets: number;
   status: "online" | "offline";
-  battery: number | null;
 };
 
 export type RoomState = {
@@ -25,7 +23,7 @@ export type RoomState = {
 
 export type Alert = {
   id: string;
-  kind: "capacity" | "co2" | "offline";
+  kind: "capacity" | "offline";
   title: string;
   detail: string;
   time: string;
@@ -39,7 +37,7 @@ export type OccupancyRange = "1H" | "6H" | "1D" | "1W" | "1M";
 // Real backend types — these mirror the actual JSON shapes returned by the
 // Flask API (see backend/app/routes.py). Unlike the mock types above, these
 // are not fabricated — they exist because the backend genuinely provides
-// this data (single doorway, PIR + mmWave radar, no rooms/CO2/battery yet).
+// this data (single doorway with PIR + mmWave radar and no room model yet).
 // ---------------------------------------------------------------------------
 
 export type BackendRadarTarget = {
@@ -89,11 +87,11 @@ export const radarTargets: RadarTarget[] = [
 ];
 
 export const sensorNodes: SensorNode[] = [
-  { id: "NODE-01", room: "K17-101", co2: 720, pirOut: true, pirIn: false, mmwaveTargets: 1, status: "online", battery: 82 },
-  { id: "NODE-02", room: "K17-101", co2: 735, pirOut: false, pirIn: false, mmwaveTargets: 1, status: "online", battery: 76 },
-  { id: "NODE-03", room: "K17-102", co2: 980, pirOut: true, pirIn: true, mmwaveTargets: 2, status: "online", battery: 68 },
-  { id: "NODE-04", room: "K17-103", co2: 1250, pirOut: true, pirIn: false, mmwaveTargets: 0, status: "offline", battery: null },
-  { id: "NODE-05", room: "K17-104", co2: 560, pirOut: false, pirIn: false, mmwaveTargets: 0, status: "online", battery: 91 },
+  { id: "NODE-01", room: "K17-101", pirOut: true, pirIn: false, mmwaveTargets: 1, status: "online" },
+  { id: "NODE-02", room: "K17-101", pirOut: false, pirIn: false, mmwaveTargets: 1, status: "online" },
+  { id: "NODE-03", room: "K17-102", pirOut: true, pirIn: true, mmwaveTargets: 2, status: "online" },
+  { id: "NODE-04", room: "K17-103", pirOut: true, pirIn: false, mmwaveTargets: 0, status: "offline" },
+  { id: "NODE-05", room: "K17-104", pirOut: false, pirIn: false, mmwaveTargets: 0, status: "online" },
 ];
 
 export const rooms: RoomState[] = [
@@ -105,6 +103,5 @@ export const rooms: RoomState[] = [
 
 export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
-  { id: "a2", kind: "co2", title: "High CO₂ level", detail: "K17-102 CO₂ reading is high (980 ppm)", time: "10:18 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
 ];
