@@ -1,7 +1,16 @@
-import { ChevronDown, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import "./Topbar.css";
 
-export default function Topbar({ title, sub }: { title: string; sub: string }) {
+type TopbarProps = {
+  title: string;
+  sub: string;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
+};
+
+export default function Topbar({ title, sub, theme, onToggleTheme }: TopbarProps) {
+  const isLight = theme === "light";
+
   return (
     <header className="topbar">
       <div>
@@ -9,12 +18,13 @@ export default function Topbar({ title, sub }: { title: string; sub: string }) {
         <p className="topbar-sub">{sub}</p>
       </div>
       <div className="topbar-actions">
-        <button className="icon-btn" aria-label="Toggle theme">
-          <Sun size={16} strokeWidth={2} />
-        </button>
-        <button className="building-select">
-          CSE Building
-          <ChevronDown size={14} strokeWidth={2} />
+        <button
+          className="icon-btn"
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={isLight ? "Switch to dark mode" : "Switch to light mode"}
+        >
+          {isLight ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
         </button>
       </div>
     </header>
