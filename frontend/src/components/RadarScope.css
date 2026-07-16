@@ -51,14 +51,18 @@
 
 .radar-body {
   display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
   justify-content: center;
   padding: 4px 0 10px;
 }
 
 .radar-svg {
   width: 100%;
-  max-width: 210px;
-  height: auto;
+  max-width: 280px;
+  max-height: 100%;
+  height: 100%;
 }
 
 .radar-ring {

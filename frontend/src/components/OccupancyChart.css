@@ -3,6 +3,10 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 18px 20px 8px;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  height: 100%;
 }
 
 .chart-head {
@@ -10,6 +14,12 @@
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 4px;
+  flex: none;
+}
+
+.chart-plot {
+  flex: 1;
+  min-height: 250px;
 }
 
 .chart-title {

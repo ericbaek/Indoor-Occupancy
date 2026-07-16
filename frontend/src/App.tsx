@@ -71,7 +71,7 @@ function App() {
         />
 
         {page === "Dashboard" && (
-          <>
+          <div className="dashboard-page">
             {data.error && (
               <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>
                 Live data unavailable ({data.error}) — showing last known values.
@@ -120,7 +120,7 @@ function App() {
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
-          </>
+          </div>
         )}
 
         {page === "Rooms" && (

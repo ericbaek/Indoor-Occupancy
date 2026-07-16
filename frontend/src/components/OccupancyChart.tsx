@@ -45,8 +45,9 @@ export default function OccupancyChart({
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={230}>
-        <AreaChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+      <div className="chart-plot">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
           <defs>
             <linearGradient id="occFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#17B3A3" stopOpacity={0.28} />
@@ -62,8 +63,9 @@ export default function OccupancyChart({
             labelStyle={{ fontWeight: 600, color: "var(--text)" }}
           />
           <Area type="monotone" dataKey="count" stroke="#17B3A3" strokeWidth={2.25} fill="url(#occFill)" name="People" isAnimationActive={false} />
-        </AreaChart>
-      </ResponsiveContainer>
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
