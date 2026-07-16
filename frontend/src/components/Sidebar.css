@@ -128,3 +128,18 @@
   color: var(--text-faint);
   padding: 0 2px;
 }
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 72px;
+    min-width: 72px;
+    padding: 18px 10px;
+    align-items: center;
+  }
+  .sidebar-brand { padding: 0; }
+  .brand-name, .brand-sub { display: none; }
+  .nav-item { justify-content: center; padding: 10px; }
+  .nav-item-label { display: none; }
+  .privacy-card p, .privacy-title, .building-tag { display: none; }
+  .privacy-card { display: grid; place-items: center; padding: 10px; }
+}

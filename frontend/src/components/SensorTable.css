@@ -8,6 +8,11 @@
 .sensor-table {
   display: flex;
   flex-direction: column;
+  overflow-x: auto;
+}
+
+.sensor-row {
+  min-width: 640px;
 }
 
 .sensor-row {

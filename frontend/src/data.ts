@@ -33,47 +33,6 @@ export type Alert = {
 
 export type OccupancyPoint = { t: string; count: number };
 
-export type OccupancyRange = "1H" | "6H" | "1D" | "1W" | "1M";
-
-const occupancy1D: OccupancyPoint[] = [
-  { t: "12A", count: 4 }, { t: "2A", count: 3 }, { t: "4A", count: 2 },
-  { t: "6A", count: 5 }, { t: "8A", count: 14 }, { t: "10A", count: 21 },
-  { t: "12P", count: 26 }, { t: "2P", count: 30 }, { t: "4P", count: 25 },
-  { t: "6P", count: 18 }, { t: "8P", count: 9 }, { t: "10P", count: 4 },
-];
-
-const occupancy1H: OccupancyPoint[] = [
-  { t: ":00", count: 22 }, { t: ":05", count: 23 }, { t: ":10", count: 25 },
-  { t: ":15", count: 27 }, { t: ":20", count: 26 }, { t: ":25", count: 28 },
-  { t: ":30", count: 29 }, { t: ":35", count: 28 }, { t: ":40", count: 26 },
-  { t: ":45", count: 24 }, { t: ":50", count: 25 }, { t: ":55", count: 24 },
-];
-
-const occupancy6H: OccupancyPoint[] = [
-  { t: "9A", count: 12 }, { t: "9:30", count: 16 }, { t: "10A", count: 21 },
-  { t: "10:30", count: 24 }, { t: "11A", count: 27 }, { t: "11:30", count: 29 },
-  { t: "12P", count: 26 }, { t: "12:30", count: 22 }, { t: "1P", count: 25 },
-  { t: "1:30", count: 28 }, { t: "2P", count: 30 }, { t: "2:30", count: 27 },
-];
-
-const occupancy1W: OccupancyPoint[] = [
-  { t: "Mon", count: 27 }, { t: "Tue", count: 31 }, { t: "Wed", count: 24 },
-  { t: "Thu", count: 33 }, { t: "Fri", count: 20 }, { t: "Sat", count: 4 },
-  { t: "Sun", count: 2 },
-];
-
-const occupancy1M: OccupancyPoint[] = [
-  { t: "W1", count: 22 }, { t: "W2", count: 26 }, { t: "W3", count: 25 }, { t: "W4", count: 29 },
-];
-
-export const occupancySeriesByRange: Record<OccupancyRange, OccupancyPoint[]> = {
-  "1H": occupancy1H,
-  "6H": occupancy6H,
-  "1D": occupancy1D,
-  "1W": occupancy1W,
-  "1M": occupancy1M,
-};
-
 // Live radar targets — shape matches the RD-03D UART frame the team is
 // parsing in Thonny (angle / distance / speed per target, up to 3).
 export const radarTargets: RadarTarget[] = [
@@ -101,4 +60,11 @@ export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
   { id: "a2", kind: "co2", title: "High CO\u2082 level", detail: "K17-102 CO\u2082 reading is high (980 ppm)", time: "10:18 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
+];
+
+export const occupancySeries: OccupancyPoint[] = [
+  { t: "12A", count: 4 }, { t: "2A", count: 3 }, { t: "4A", count: 2 },
+  { t: "6A", count: 5 }, { t: "8A", count: 14 }, { t: "10A", count: 21 },
+  { t: "12P", count: 26 }, { t: "2P", count: 30 }, { t: "4P", count: 25 },
+  { t: "6P", count: 18 }, { t: "8P", count: 9 }, { t: "10P", count: 4 },
 ];
