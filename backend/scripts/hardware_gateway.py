@@ -7,6 +7,7 @@ Flask backend via HTTP POST.
 Supported message types:
   - "radar"           → POST /api/radar/readings
   - "occupancy_event" → POST /api/occupancy/events
+  - "environment"     → POST /api/environment/readings
 
 Usage
 -----
@@ -62,6 +63,7 @@ log = logging.getLogger("hardware_gateway")
 _ROUTES: dict[str, str] = {
     "radar": "/api/radar/readings",
     "occupancy_event": "/api/occupancy/events",
+    "environment": "/api/environment/readings",
 }
 
 HTTP_TIMEOUT = 5  # seconds

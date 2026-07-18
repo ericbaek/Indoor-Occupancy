@@ -83,6 +83,25 @@ CREATE TABLE IF NOT EXISTS radar_readings (
     targets_json TEXT    NOT NULL,
     received_at  TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS environment_latest (
+    device_id        TEXT    PRIMARY KEY,
+    uptime_ms        INTEGER NOT NULL,
+    co2_ppm          INTEGER NOT NULL,
+    temperature_c    REAL    NOT NULL,
+    humidity_percent REAL    NOT NULL,
+    received_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS environment_readings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id        TEXT    NOT NULL,
+    uptime_ms        INTEGER NOT NULL,
+    co2_ppm          INTEGER NOT NULL,
+    temperature_c    REAL    NOT NULL,
+    humidity_percent REAL    NOT NULL,
+    received_at      TEXT    NOT NULL
+);
 """
 
 
@@ -421,3 +440,118 @@ def get_radar_latest_for_device(device_id: str) -> dict[str, Any] | None:
     except (json.JSONDecodeError, TypeError):
         d["targets"] = []
     return d
+
+
+# ---------------------------------------------------------------------------
+# Environment / CO2 sensor storage helpers
+# ---------------------------------------------------------------------------
+
+def upsert_environment_latest(
+    *,
+    device_id: str,
+    uptime_ms: int,
+    co2_ppm: int,
+    temperature_c: float,
+    humidity_percent: float,
+) -> str:
+    """Update (or insert) the latest environment reading for a device.
+
+    Uses INSERT … ON CONFLICT so the row is always the most recent snapshot.
+    Returns the received_at timestamp.
+    """
+    received_at = _utc_now()
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO environment_latest
+            (device_id, uptime_ms, co2_ppm, temperature_c, humidity_percent, received_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(device_id) DO UPDATE SET
+            uptime_ms        = excluded.uptime_ms,
+            co2_ppm          = excluded.co2_ppm,
+            temperature_c    = excluded.temperature_c,
+            humidity_percent = excluded.humidity_percent,
+            received_at      = excluded.received_at
+        """,
+        (device_id, uptime_ms, co2_ppm, temperature_c, humidity_percent, received_at),
+    )
+    db.commit()
+    return received_at
+
+
+def insert_environment_reading_if_throttled(
+    *,
+    device_id: str,
+    uptime_ms: int,
+    co2_ppm: int,
+    temperature_c: float,
+    humidity_percent: float,
+) -> bool:
+    """Insert an environment history record if at least 5 seconds have elapsed
+    since the last stored record for this device.  Returns True if a row was
+    inserted.
+
+    The 5-second throttle matches the SCD41 sensor's measurement interval.
+    """
+    db = get_db()
+    row = db.execute(
+        "SELECT MAX(received_at) AS last_at FROM environment_readings WHERE device_id = ?",
+        (device_id,),
+    ).fetchone()
+
+    last_at: str | None = row["last_at"] if row else None
+
+    now = datetime.now(timezone.utc)
+
+    if last_at is not None:
+        try:
+            last_dt = datetime.fromisoformat(last_at)
+            elapsed = (now - last_dt).total_seconds()
+            if elapsed < 5.0:
+                return False
+        except ValueError:
+            pass  # Unparseable timestamp — allow the insert.
+
+    received_at = now.isoformat()
+    db.execute(
+        """
+        INSERT INTO environment_readings
+            (device_id, uptime_ms, co2_ppm, temperature_c, humidity_percent, received_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (device_id, uptime_ms, co2_ppm, temperature_c, humidity_percent, received_at),
+    )
+    db.commit()
+    return True
+
+
+def get_environment_latest_all() -> list[dict[str, Any]]:
+    """Return the latest environment reading for every known device."""
+    rows = get_db().execute(
+        "SELECT * FROM environment_latest ORDER BY device_id"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_environment_latest_for_device(device_id: str) -> dict[str, Any] | None:
+    """Return the latest environment reading for a specific device, or None."""
+    row = get_db().execute(
+        "SELECT * FROM environment_latest WHERE device_id = ?", (device_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def get_environment_history(
+    device_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return recent environment readings for a device, newest first."""
+    limit = min(max(1, limit), 200)
+    rows = get_db().execute(
+        "SELECT * FROM environment_readings WHERE device_id = ? ORDER BY id DESC LIMIT ?",
+        (device_id, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+

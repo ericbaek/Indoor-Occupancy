@@ -110,6 +110,8 @@ def test_status_contains_required_fields(sc):
         "occupancy", "status", "radar_presence",
         "radar_target_count", "last_occupancy_event_at",
         "last_radar_update_at", "mismatch_started_at",
+        "co2_ppm", "co2_level", "temperature_c",
+        "humidity_percent", "last_environment_update_at",
     ):
         assert field in data, f"Missing field: {field}"
 
@@ -225,3 +227,85 @@ def test_mismatch_started_at_stable_across_calls(sc):
     first = _get_status(sc).get_json()["mismatch_started_at"]
     second = _get_status(sc).get_json()["mismatch_started_at"]
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# CO2 / environment fields in status response
+# ---------------------------------------------------------------------------
+
+_ENV_NORMAL = {
+    "message_type": "environment",
+    "device_id": _DEVICE,
+    "uptime_ms": 5000,
+    "co2_ppm": 420,
+    "temperature_c": 22.0,
+    "humidity_percent": 55.0,
+}
+
+_ENV_ELEVATED = {
+    "message_type": "environment",
+    "device_id": _DEVICE,
+    "uptime_ms": 6000,
+    "co2_ppm": 1000,
+    "temperature_c": 23.0,
+    "humidity_percent": 60.0,
+}
+
+_ENV_HIGH = {
+    "message_type": "environment",
+    "device_id": _DEVICE,
+    "uptime_ms": 7000,
+    "co2_ppm": 2000,
+    "temperature_c": 24.0,
+    "humidity_percent": 70.0,
+}
+
+
+def _post_env(sc, payload=None):
+    return sc.post("/api/environment/readings", json=payload or _ENV_NORMAL)
+
+
+def test_status_co2_fields_null_when_no_environment_data(sc):
+    data = _get_status(sc).get_json()
+    assert data["co2_ppm"] is None
+    assert data["co2_level"] is None
+    assert data["temperature_c"] is None
+    assert data["humidity_percent"] is None
+    assert data["last_environment_update_at"] is None
+
+
+def test_status_co2_normal_level(sc):
+    _post_env(sc, _ENV_NORMAL)
+    data = _get_status(sc).get_json()
+    assert data["co2_ppm"] == 420
+    assert data["co2_level"] == "normal"
+    assert data["temperature_c"] == 22.0
+    assert data["humidity_percent"] == 55.0
+    assert data["last_environment_update_at"] is not None
+
+
+def test_status_co2_elevated_level(sc):
+    _post_env(sc, _ENV_ELEVATED)
+    data = _get_status(sc).get_json()
+    assert data["co2_ppm"] == 1000
+    assert data["co2_level"] == "elevated"
+
+
+def test_status_co2_high_level(sc):
+    _post_env(sc, _ENV_HIGH)
+    data = _get_status(sc).get_json()
+    assert data["co2_ppm"] == 2000
+    assert data["co2_level"] == "high"
+
+
+def test_status_co2_does_not_affect_occupancy_count(sc):
+    _post_env(sc, _ENV_HIGH)  # high CO2 should not change occupancy
+    data = _get_status(sc).get_json()
+    assert data["occupancy"] == 0
+
+
+def test_status_co2_does_not_affect_confirmed_uncertain(sc):
+    # Both occupancy and radar are 0 → confirmed, regardless of CO2
+    _post_env(sc, _ENV_HIGH)
+    data = _get_status(sc).get_json()
+    assert data["status"] == "confirmed"

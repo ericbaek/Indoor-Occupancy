@@ -8,16 +8,21 @@ from flask import Blueprint, jsonify, request
 
 from .database import (
     get_db,
+    get_environment_history,
+    get_environment_latest_all,
+    get_environment_latest_for_device,
     get_events,
     get_occupancy_events,
     get_occupancy_total,
     get_radar_latest_all,
     get_radar_latest_for_device,
     get_room_state,
+    insert_environment_reading_if_throttled,
     insert_event,
     insert_occupancy_event,
     insert_radar_reading_if_throttled,
     reset_room,
+    upsert_environment_latest,
     upsert_radar_latest,
 )
 from .occupancy import compute_new_count, get_occupancy_level
@@ -504,12 +509,157 @@ def get_radar_latest_device(device_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Environment / CO2 sensor readings
+# ---------------------------------------------------------------------------
+
+@api.post("/environment/readings")
+def post_environment_reading():
+    """Accept and store an environment reading from the CO2 sensor hardware."""
+    if not request.is_json:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid or empty JSON body"}), 400
+
+    # --- message_type ---
+    if data.get("message_type") != "environment":
+        return jsonify({"error": "message_type must be 'environment'"}), 400
+
+    # --- device_id ---
+    raw_device = data.get("device_id", "")
+    if not isinstance(raw_device, str) or not raw_device.strip():
+        return jsonify({"error": "device_id must be a non-empty string"}), 400
+    device_id = raw_device.strip()
+
+    # --- uptime_ms ---
+    raw_uptime = data.get("uptime_ms")
+    if raw_uptime is None:
+        return jsonify({"error": "Missing required field: uptime_ms"}), 400
+    if isinstance(raw_uptime, bool) or not isinstance(raw_uptime, (int, float)):
+        return jsonify({"error": "uptime_ms must be a number"}), 400
+    if raw_uptime < 0:
+        return jsonify({"error": "uptime_ms must be zero or greater"}), 400
+    uptime_ms = int(raw_uptime)
+
+    # --- co2_ppm ---
+    raw_co2 = data.get("co2_ppm")
+    if raw_co2 is None:
+        return jsonify({"error": "Missing required field: co2_ppm"}), 400
+    if isinstance(raw_co2, bool) or not isinstance(raw_co2, (int, float)):
+        return jsonify({"error": "co2_ppm must be a number"}), 400
+    if raw_co2 < 0:
+        return jsonify({"error": "co2_ppm must be zero or greater"}), 400
+    co2_ppm = int(raw_co2)
+
+    # --- temperature_c ---
+    raw_temp = data.get("temperature_c")
+    if raw_temp is None:
+        return jsonify({"error": "Missing required field: temperature_c"}), 400
+    if isinstance(raw_temp, bool) or not isinstance(raw_temp, (int, float)):
+        return jsonify({"error": "temperature_c must be a number"}), 400
+    temperature_c = float(raw_temp)
+
+    # --- humidity_percent ---
+    raw_hum = data.get("humidity_percent")
+    if raw_hum is None:
+        return jsonify({"error": "Missing required field: humidity_percent"}), 400
+    if isinstance(raw_hum, bool) or not isinstance(raw_hum, (int, float)):
+        return jsonify({"error": "humidity_percent must be a number"}), 400
+    if raw_hum < 0 or raw_hum > 100:
+        return jsonify({"error": "humidity_percent must be between 0 and 100"}), 400
+    humidity_percent = float(raw_hum)
+
+    # --- Persist ---
+    received_at = upsert_environment_latest(
+        device_id=device_id,
+        uptime_ms=uptime_ms,
+        co2_ppm=co2_ppm,
+        temperature_c=temperature_c,
+        humidity_percent=humidity_percent,
+    )
+    insert_environment_reading_if_throttled(
+        device_id=device_id,
+        uptime_ms=uptime_ms,
+        co2_ppm=co2_ppm,
+        temperature_c=temperature_c,
+        humidity_percent=humidity_percent,
+    )
+
+    return jsonify({
+        "success": True,
+        "message": "Environment reading recorded",
+        "data": {
+            "device_id": device_id,
+            "co2_ppm": co2_ppm,
+            "temperature_c": temperature_c,
+            "humidity_percent": humidity_percent,
+            "received_at": received_at,
+        },
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# Environment query endpoints
+# ---------------------------------------------------------------------------
+
+@api.get("/environment/latest")
+def get_environment_latest():
+    """Return the latest environment reading for all known devices."""
+    devices = get_environment_latest_all()
+    return jsonify({"devices": devices}), 200
+
+
+@api.get("/environment/latest/<device_id>")
+def get_environment_latest_device(device_id: str):
+    """Return the latest environment reading for a specific device."""
+    device_id = device_id.strip()
+    reading = get_environment_latest_for_device(device_id)
+    if reading is None:
+        return jsonify({
+            "error": f"No environment data found for device_id '{device_id}'"
+        }), 404
+    return jsonify(reading), 200
+
+
+@api.get("/environment/history/<device_id>")
+def get_environment_history_endpoint(device_id: str):
+    """Return recent environment readings for a device, newest first."""
+    device_id = device_id.strip()
+    try:
+        limit = max(1, int(request.args.get("limit", "50")))
+    except ValueError:
+        limit = 50
+
+    readings = get_environment_history(device_id, limit=limit)
+    return jsonify({"device_id": device_id, "readings": readings}), 200
+
+
+# ---------------------------------------------------------------------------
+# CO2 level classification
+# ---------------------------------------------------------------------------
+
+def _co2_level(ppm: int) -> str:
+    """Classify a CO2 reading using ASHRAE-based thresholds.
+
+    - normal:   < 800 ppm  (typical outdoor / empty room)
+    - elevated: 800–1500 ppm (suggests people are present)
+    - high:     > 1500 ppm (multiple people or poor ventilation)
+    """
+    if ppm < 800:
+        return "normal"
+    if ppm <= 1500:
+        return "elevated"
+    return "high"
+
+
+# ---------------------------------------------------------------------------
 # Unified occupancy status endpoint (for the frontend)
 # ---------------------------------------------------------------------------
 
 @api.get("/occupancy/status")
 def get_occupancy_status():
-    """Return a unified view of PIR occupancy and radar presence.
+    """Return a unified view of PIR occupancy, radar presence, and CO2 level.
 
     Status rules:
     - 'confirmed'  when occupancy count and radar presence agree.
@@ -539,6 +689,24 @@ def get_occupancy_status():
 
     radar_presence = radar_target_count > 0
 
+    # Aggregate environment / CO2 across all devices — use the device with
+    # the highest CO2 reading as the representative value.
+    env_devices = get_environment_latest_all()
+    co2_ppm: int | None = None
+    temperature_c: float | None = None
+    humidity_percent: float | None = None
+    last_environment_update_at: str | None = None
+
+    for env in env_devices:
+        if co2_ppm is None or env["co2_ppm"] > co2_ppm:
+            co2_ppm = env["co2_ppm"]
+            temperature_c = env["temperature_c"]
+            humidity_percent = env["humidity_percent"]
+        if last_environment_update_at is None or env["received_at"] > last_environment_update_at:
+            last_environment_update_at = env["received_at"]
+
+    co2_level_str: str | None = _co2_level(co2_ppm) if co2_ppm is not None else None
+
     # Determine confirmed vs uncertain.
     occupancy_present = occupancy > 0
     agreed = (occupancy_present == radar_presence)
@@ -558,10 +726,12 @@ def get_occupancy_status():
         "status": status,
         "radar_presence": radar_presence,
         "radar_target_count": radar_target_count,
+        "co2_ppm": co2_ppm,
+        "co2_level": co2_level_str,
+        "temperature_c": temperature_c,
+        "humidity_percent": humidity_percent,
         "last_occupancy_event_at": last_occupancy_event_at,
         "last_radar_update_at": last_radar_update_at,
+        "last_environment_update_at": last_environment_update_at,
         "mismatch_started_at": _mismatch_started_at,
     }), 200
-
-
-

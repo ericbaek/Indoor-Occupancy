@@ -198,6 +198,17 @@ after the session completes.
 | `GET`  | `/api/events` | List recent events |
 | `GET`  | `/api/rooms/<room_id>/status` | Current room occupancy |
 | `POST` | `/api/rooms/<room_id>/reset` | Reset room to zero |
+| `POST` | `/api/occupancy/events` | Store a PIR doorway occupancy event |
+| `GET`  | `/api/occupancy/current` | Current occupancy count |
+| `GET`  | `/api/occupancy/events` | List recent PIR events |
+| `GET`  | `/api/occupancy/status` | Unified status: occupancy + radar + CO₂ |
+| `POST` | `/api/radar/readings` | Store a radar reading |
+| `GET`  | `/api/radar/latest` | Latest radar snapshot for all devices |
+| `GET`  | `/api/radar/latest/<device_id>` | Latest radar snapshot for one device |
+| `POST` | `/api/environment/readings` | Store a CO₂ / environment reading |
+| `GET`  | `/api/environment/latest` | Latest environment reading for all devices |
+| `GET`  | `/api/environment/latest/<device_id>` | Latest reading for one device |
+| `GET`  | `/api/environment/history/<device_id>` | Recent readings history |
 
 ---
 
@@ -1059,12 +1070,14 @@ curl http://localhost:5000/api/occupancy/status
 pytest -v
 ```
 
-All 120 tests should pass.  The test suite includes:
+All 165 tests should pass.  The test suite includes:
 - All pre-existing tests (sensor events, room state, PIR occupancy)
 - New radar endpoint tests (`test_radar.py`)
 - New occupancy status tests (`test_occupancy_status.py`)
 - Gateway unit tests (`test_gateway.py`)
 - Extended occupancy event tests (message_type, radar snapshot, backward compat)
+- Environment / CO₂ endpoint tests (`test_environment.py`)
+- CO₂ fields in occupancy status tests
 
 New test files use function-scoped database fixtures so every test runs in full
 isolation regardless of order.
@@ -1102,3 +1115,268 @@ on startup; existing data is preserved):
 | `message_type` | TEXT | `"occupancy_event"` if present in the hardware JSON |
 | `radar_target_count` | INTEGER | Target count from the embedded radar snapshot |
 | `radar_targets_json` | TEXT | JSON array of targets from the embedded radar snapshot |
+
+---
+
+## CO₂ / Environment Sensor Integration
+
+This section documents the environment sensor (SCD41) data pipeline — CO₂,
+temperature, and humidity readings.
+
+---
+
+### Hardware JSON Format
+
+The CO₂ sensor sends the following JSON payload approximately every 5 seconds:
+
+```json
+{
+  "message_type": "environment",
+  "device_id": "scd41-nano-01",
+  "uptime_ms": 7080308,
+  "co2_ppm": 1520,
+  "temperature_c": 21.4,
+  "humidity_percent": 64.6
+}
+```
+
+- `co2_ppm` is the primary signal for occupancy estimation.
+- `temperature_c` and `humidity_percent` are stored as supplementary data.
+- The sensor outputs one reading every **5 seconds**.
+
+---
+
+### API Endpoints — Environment
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/environment/readings` | Accept and store a CO₂ / environment reading |
+| `GET`  | `/api/environment/latest` | Latest reading for all environment devices |
+| `GET`  | `/api/environment/latest/<device_id>` | Latest reading for one device |
+| `GET`  | `/api/environment/history/<device_id>` | Recent readings history for trend analysis |
+
+#### `POST /api/environment/readings`
+
+Accepts an environment reading from the hardware (via the gateway script).
+
+**Validation rules:**
+- `message_type` must be `"environment"`.
+- `device_id` must be a non-empty string.
+- `uptime_ms` must be a number ≥ 0.
+- `co2_ppm` must be a number ≥ 0.
+- `temperature_c` must be a number.
+- `humidity_percent` must be a number between 0 and 100.
+
+**Success response (HTTP 201):**
+
+```json
+{
+  "success": true,
+  "message": "Environment reading recorded",
+  "data": {
+    "device_id": "scd41-nano-01",
+    "co2_ppm": 1520,
+    "temperature_c": 21.4,
+    "humidity_percent": 64.6,
+    "received_at": "2026-07-19T02:00:00+00:00"
+  }
+}
+```
+
+#### `GET /api/environment/latest`
+
+Returns the latest environment reading for every known device.
+
+```json
+{
+  "devices": [
+    {
+      "device_id": "scd41-nano-01",
+      "uptime_ms": 7080308,
+      "co2_ppm": 1520,
+      "temperature_c": 21.4,
+      "humidity_percent": 64.6,
+      "received_at": "2026-07-19T02:00:00+00:00"
+    }
+  ]
+}
+```
+
+#### `GET /api/environment/latest/<device_id>`
+
+Returns the latest reading for a single device.  Returns HTTP 404 if no data
+has been received for that device.
+
+#### `GET /api/environment/history/<device_id>?limit=50`
+
+Returns recent environment readings for a device, newest first.  The `limit`
+parameter is optional (default 50, maximum 200).
+
+```json
+{
+  "device_id": "scd41-nano-01",
+  "readings": [
+    {
+      "id": 3,
+      "device_id": "scd41-nano-01",
+      "uptime_ms": 7090000,
+      "co2_ppm": 1200,
+      "temperature_c": 22.0,
+      "humidity_percent": 58.0,
+      "received_at": "2026-07-19T02:00:15+00:00"
+    }
+  ]
+}
+```
+
+---
+
+### Environment Storage Policy
+
+The SCD41 sensor sends readings every 5 seconds.  The backend uses a two-tier
+storage policy identical in pattern to the radar pipeline:
+
+**`environment_latest` table (always updated)**
+
+One row per `device_id`.  Every incoming reading overwrites the previous row
+for that device.  This gives the frontend an always-current snapshot.
+
+**`environment_readings` table (throttled history)**
+
+At most one row per device per 5 seconds is inserted.  This matches the
+sensor's measurement interval and prevents unbounded database growth.
+
+---
+
+### CO₂ Level Classification
+
+The unified status endpoint classifies CO₂ readings using ASHRAE-based
+thresholds:
+
+| CO₂ (ppm) | Level | Interpretation |
+|-----------|-------|----------------|
+| < 800 | `normal` | Typical outdoor / empty room |
+| 800 – 1500 | `elevated` | Suggests people are present |
+| > 1500 | `high` | Multiple people or poor ventilation |
+
+> **Note:** CO₂ data is a supplementary occupancy signal.  It does not
+> directly change the occupancy count — only PIR events modify the count.
+> The CO₂ level appears in the `GET /api/occupancy/status` response alongside
+> the PIR count and radar presence.
+
+---
+
+### Enhanced Occupancy Status Response
+
+`GET /api/occupancy/status` now includes environment data:
+
+```json
+{
+  "occupancy": 3,
+  "status": "confirmed",
+  "radar_presence": true,
+  "radar_target_count": 1,
+  "co2_ppm": 1520,
+  "co2_level": "high",
+  "temperature_c": 21.4,
+  "humidity_percent": 64.6,
+  "last_occupancy_event_at": "2026-07-19T01:55:00+00:00",
+  "last_radar_update_at": "2026-07-19T01:59:55+00:00",
+  "last_environment_update_at": "2026-07-19T02:00:00+00:00",
+  "mismatch_started_at": null
+}
+```
+
+When no environment data has been received, `co2_ppm`, `co2_level`,
+`temperature_c`, `humidity_percent`, and `last_environment_update_at` are `null`.
+
+---
+
+### curl Examples — Environment
+
+#### Send a CO₂ reading
+
+```bash
+curl -X POST http://localhost:5000/api/environment/readings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message_type": "environment",
+    "device_id": "scd41-nano-01",
+    "uptime_ms": 7080308,
+    "co2_ppm": 1520,
+    "temperature_c": 21.4,
+    "humidity_percent": 64.6
+  }'
+```
+
+#### Get latest environment for all devices
+
+```bash
+curl http://localhost:5000/api/environment/latest
+```
+
+#### Get latest for one device
+
+```bash
+curl http://localhost:5000/api/environment/latest/scd41-nano-01
+```
+
+#### Get history for a device
+
+```bash
+curl "http://localhost:5000/api/environment/history/scd41-nano-01?limit=20"
+```
+
+#### Get unified status (now includes CO₂)
+
+```bash
+curl http://localhost:5000/api/occupancy/status
+```
+
+---
+
+### Environment Test Data Script
+
+`scripts/send_environment_test_data.py` sends simulated CO₂ readings to the
+backend without needing real hardware.
+
+```bash
+# Backend must be running first:
+python run.py
+
+# In a separate terminal (from the backend/ directory):
+python scripts/send_environment_test_data.py
+```
+
+The script covers:
+- Increasing CO₂ readings (empty room → crowded → clearing)
+- Invalid payloads that should be rejected
+- Multi-device data
+- Querying latest, history, and unified status endpoints
+
+---
+
+### SQLite Database — Environment Tables
+
+**`environment_latest`** — current environment reading per device:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `device_id` | TEXT PRIMARY KEY | Hardware device identifier |
+| `uptime_ms` | INTEGER | Device uptime at time of reading |
+| `co2_ppm` | INTEGER | CO₂ concentration in parts per million |
+| `temperature_c` | REAL | Temperature in degrees Celsius |
+| `humidity_percent` | REAL | Relative humidity percentage |
+| `received_at` | TEXT | UTC ISO 8601 timestamp (backend-generated) |
+
+**`environment_readings`** — throttled history (at most 1 row/device/5 seconds):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Auto-increment primary key |
+| `device_id` | TEXT | Hardware device identifier |
+| `uptime_ms` | INTEGER | Device uptime at time of reading |
+| `co2_ppm` | INTEGER | CO₂ concentration |
+| `temperature_c` | REAL | Temperature |
+| `humidity_percent` | REAL | Humidity |
+| `received_at` | TEXT | UTC ISO 8601 timestamp |

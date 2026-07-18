@@ -98,6 +98,22 @@ def test_forward_unknown_message_type_does_not_post():
         mock_post.assert_not_called()
 
 
+def test_forward_environment_posts_to_environment_endpoint():
+    message = {
+        "message_type": "environment",
+        "device_id": "scd41-nano-01",
+        "uptime_ms": 7080308,
+        "co2_ppm": 1520,
+        "temperature_c": 21.4,
+        "humidity_percent": 64.6,
+    }
+    with patch("hardware_gateway.requests.post", return_value=_make_ok_response()) as mock_post:
+        gw._forward(BASE_URL, message)
+        mock_post.assert_called_once()
+        url_used = mock_post.call_args[0][0]
+        assert url_used.endswith("/api/environment/readings")
+
+
 # ---------------------------------------------------------------------------
 # _process_line — JSON parsing
 # ---------------------------------------------------------------------------
