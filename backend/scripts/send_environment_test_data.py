@@ -171,7 +171,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     base = args.url.rstrip("/")
-    post_url = f"{base}/api/environment/readings"
+    post_url = f"{base}/api/co2/readings"
 
     print("=" * 60)
     print(f"  CO2 / Environment — Test Data Sender")
@@ -200,9 +200,9 @@ def main() -> None:
     print("-" * 60)
 
     # --- Query latest for all devices ---
-    print("\n  GET /api/environment/latest")
+    print("\n  GET /api/co2/latest")
     try:
-        resp = _get(f"{base}/api/environment/latest")
+        resp = _get(f"{base}/api/co2/latest")
         data = resp.get_json() if hasattr(resp, "get_json") else resp.json()
         for dev in data.get("devices", []):
             print(f"    {dev['device_id']}: CO2={dev['co2_ppm']}ppm  "
@@ -211,9 +211,9 @@ def main() -> None:
         print(f"    Error: {exc}")
 
     # --- Query latest for primary device ---
-    print(f"\n  GET /api/environment/latest/{DEVICE}")
+    print(f"\n  GET /api/co2/latest/{DEVICE}")
     try:
-        resp = _get(f"{base}/api/environment/latest/{DEVICE}")
+        resp = _get(f"{base}/api/co2/latest/{DEVICE}")
         data = resp.get_json() if hasattr(resp, "get_json") else resp.json()
         print(f"    CO2: {data.get('co2_ppm')} ppm")
         print(f"    Temperature: {data.get('temperature_c')} °C")
@@ -222,9 +222,9 @@ def main() -> None:
         print(f"    Error: {exc}")
 
     # --- Query history ---
-    print(f"\n  GET /api/environment/history/{DEVICE}?limit=5")
+    print(f"\n  GET /api/co2/history/{DEVICE}?limit=5")
     try:
-        resp = _get(f"{base}/api/environment/history/{DEVICE}?limit=5")
+        resp = _get(f"{base}/api/co2/history/{DEVICE}?limit=5")
         data = resp.get_json() if hasattr(resp, "get_json") else resp.json()
         readings = data.get("readings", [])
         print(f"    {len(readings)} reading(s) returned")

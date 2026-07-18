@@ -205,10 +205,10 @@ after the session completes.
 | `POST` | `/api/radar/readings` | Store a radar reading |
 | `GET`  | `/api/radar/latest` | Latest radar snapshot for all devices |
 | `GET`  | `/api/radar/latest/<device_id>` | Latest radar snapshot for one device |
-| `POST` | `/api/environment/readings` | Store a CO₂ / environment reading |
-| `GET`  | `/api/environment/latest` | Latest environment reading for all devices |
-| `GET`  | `/api/environment/latest/<device_id>` | Latest reading for one device |
-| `GET`  | `/api/environment/history/<device_id>` | Recent readings history |
+| `POST` | `/api/co2/readings` | Store a CO₂ / environment reading |
+| `GET`  | `/api/co2/latest` | Latest environment reading for all devices |
+| `GET`  | `/api/co2/latest/<device_id>` | Latest reading for one device |
+| `GET`  | `/api/co2/history/<device_id>` | Recent readings history |
 
 ---
 
@@ -1150,12 +1150,12 @@ The CO₂ sensor sends the following JSON payload approximately every 5 seconds:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/environment/readings` | Accept and store a CO₂ / environment reading |
-| `GET`  | `/api/environment/latest` | Latest reading for all environment devices |
-| `GET`  | `/api/environment/latest/<device_id>` | Latest reading for one device |
-| `GET`  | `/api/environment/history/<device_id>` | Recent readings history for trend analysis |
+| `POST` | `/api/co2/readings` | Accept and store a CO₂ / environment reading |
+| `GET`  | `/api/co2/latest` | Latest reading for all environment devices |
+| `GET`  | `/api/co2/latest/<device_id>` | Latest reading for one device |
+| `GET`  | `/api/co2/history/<device_id>` | Recent readings history for trend analysis |
 
-#### `POST /api/environment/readings`
+#### `POST /api/co2/readings`
 
 Accepts an environment reading from the hardware (via the gateway script).
 
@@ -1183,7 +1183,7 @@ Accepts an environment reading from the hardware (via the gateway script).
 }
 ```
 
-#### `GET /api/environment/latest`
+#### `GET /api/co2/latest`
 
 Returns the latest environment reading for every known device.
 
@@ -1202,12 +1202,12 @@ Returns the latest environment reading for every known device.
 }
 ```
 
-#### `GET /api/environment/latest/<device_id>`
+#### `GET /api/co2/latest/<device_id>`
 
 Returns the latest reading for a single device.  Returns HTTP 404 if no data
 has been received for that device.
 
-#### `GET /api/environment/history/<device_id>?limit=50`
+#### `GET /api/co2/history/<device_id>?limit=50`
 
 Returns recent environment readings for a device, newest first.  The `limit`
 parameter is optional (default 50, maximum 200).
@@ -1297,7 +1297,7 @@ When no environment data has been received, `co2_ppm`, `co2_level`,
 #### Send a CO₂ reading
 
 ```bash
-curl -X POST http://localhost:5000/api/environment/readings \
+curl -X POST http://localhost:5000/api/co2/readings \
   -H "Content-Type: application/json" \
   -d '{
     "message_type": "environment",
@@ -1312,19 +1312,19 @@ curl -X POST http://localhost:5000/api/environment/readings \
 #### Get latest environment for all devices
 
 ```bash
-curl http://localhost:5000/api/environment/latest
+curl http://localhost:5000/api/co2/latest
 ```
 
 #### Get latest for one device
 
 ```bash
-curl http://localhost:5000/api/environment/latest/scd41-nano-01
+curl http://localhost:5000/api/co2/latest/scd41-nano-01
 ```
 
 #### Get history for a device
 
 ```bash
-curl "http://localhost:5000/api/environment/history/scd41-nano-01?limit=20"
+curl "http://localhost:5000/api/co2/history/scd41-nano-01?limit=20"
 ```
 
 #### Get unified status (now includes CO₂)

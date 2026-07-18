@@ -512,7 +512,7 @@ def get_radar_latest_device(device_id: str):
 # Environment / CO2 sensor readings
 # ---------------------------------------------------------------------------
 
-@api.post("/environment/readings")
+@api.post("/co2/readings")
 def post_environment_reading():
     """Accept and store an environment reading from the CO2 sensor hardware."""
     if not request.is_json:
@@ -603,26 +603,26 @@ def post_environment_reading():
 # Environment query endpoints
 # ---------------------------------------------------------------------------
 
-@api.get("/environment/latest")
+@api.get("/co2/latest")
 def get_environment_latest():
     """Return the latest environment reading for all known devices."""
     devices = get_environment_latest_all()
     return jsonify({"devices": devices}), 200
 
 
-@api.get("/environment/latest/<device_id>")
+@api.get("/co2/latest/<device_id>")
 def get_environment_latest_device(device_id: str):
     """Return the latest environment reading for a specific device."""
     device_id = device_id.strip()
     reading = get_environment_latest_for_device(device_id)
     if reading is None:
         return jsonify({
-            "error": f"No environment data found for device_id '{device_id}'"
+            "error": f"No CO2 data found for device_id '{device_id}'"
         }), 404
     return jsonify(reading), 200
 
 
-@api.get("/environment/history/<device_id>")
+@api.get("/co2/history/<device_id>")
 def get_environment_history_endpoint(device_id: str):
     """Return recent environment readings for a device, newest first."""
     device_id = device_id.strip()

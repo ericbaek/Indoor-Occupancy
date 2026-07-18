@@ -111,7 +111,7 @@ def test_forward_environment_posts_to_environment_endpoint():
         gw._forward(BASE_URL, message)
         mock_post.assert_called_once()
         url_used = mock_post.call_args[0][0]
-        assert url_used.endswith("/api/environment/readings")
+        assert url_used.endswith("/api/co2/readings")
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 """
 Tests for environment / CO2 sensor endpoints:
-  POST /api/environment/readings
-  GET  /api/environment/latest
-  GET  /api/environment/latest/<device_id>
-  GET  /api/environment/history/<device_id>
+  POST /api/co2/readings
+  GET  /api/co2/latest
+  GET  /api/co2/latest/<device_id>
+  GET  /api/co2/history/<device_id>
 
 Each test uses a function-scoped database for full isolation.
 """
@@ -63,11 +63,11 @@ _VALID_ENV_LOW_CO2 = {
 
 
 def _post(client, payload):
-    return client.post("/api/environment/readings", json=payload)
+    return client.post("/api/co2/readings", json=payload)
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — valid payloads
+# POST /api/co2/readings — valid payloads
 # ---------------------------------------------------------------------------
 
 def test_valid_environment_returns_201(ec):
@@ -110,7 +110,7 @@ def test_negative_temperature_accepted(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — message_type validation
+# POST /api/co2/readings — message_type validation
 # ---------------------------------------------------------------------------
 
 def test_wrong_message_type_returns_400(ec):
@@ -124,7 +124,7 @@ def test_missing_message_type_returns_400(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — device_id validation
+# POST /api/co2/readings — device_id validation
 # ---------------------------------------------------------------------------
 
 def test_empty_device_id_returns_400(ec):
@@ -138,7 +138,7 @@ def test_non_string_device_id_returns_400(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — missing fields
+# POST /api/co2/readings — missing fields
 # ---------------------------------------------------------------------------
 
 def test_missing_uptime_ms_returns_400(ec):
@@ -162,7 +162,7 @@ def test_missing_humidity_percent_returns_400(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — type validation
+# POST /api/co2/readings — type validation
 # ---------------------------------------------------------------------------
 
 def test_bool_uptime_ms_returns_400(ec):
@@ -186,7 +186,7 @@ def test_bool_humidity_percent_returns_400(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — range validation
+# POST /api/co2/readings — range validation
 # ---------------------------------------------------------------------------
 
 def test_negative_uptime_ms_returns_400(ec):
@@ -210,28 +210,28 @@ def test_humidity_below_0_returns_400(ec):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/environment/readings — non-JSON body
+# POST /api/co2/readings — non-JSON body
 # ---------------------------------------------------------------------------
 
 def test_non_json_body_returns_400(ec):
-    resp = ec.post("/api/environment/readings", data="not json",
+    resp = ec.post("/api/co2/readings", data="not json",
                    content_type="text/plain")
     assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------
-# GET /api/environment/latest
+# GET /api/co2/latest
 # ---------------------------------------------------------------------------
 
 def test_get_latest_empty_returns_200(ec):
-    resp = ec.get("/api/environment/latest")
+    resp = ec.get("/api/co2/latest")
     assert resp.status_code == 200
     assert "devices" in resp.get_json()
 
 
 def test_get_latest_after_post(ec):
     _post(ec, _VALID_ENV)
-    data = ec.get("/api/environment/latest").get_json()
+    data = ec.get("/api/co2/latest").get_json()
     assert len(data["devices"]) == 1
     assert data["devices"][0]["device_id"] == _DEVICE
     assert data["devices"][0]["co2_ppm"] == 1520
@@ -239,33 +239,33 @@ def test_get_latest_after_post(ec):
 
 def test_get_latest_contains_required_fields(ec):
     _post(ec, _VALID_ENV)
-    device = ec.get("/api/environment/latest").get_json()["devices"][0]
+    device = ec.get("/api/co2/latest").get_json()["devices"][0]
     for field in ("device_id", "uptime_ms", "co2_ppm", "temperature_c",
                   "humidity_percent", "received_at"):
         assert field in device, f"Missing field: {field}"
 
 
 # ---------------------------------------------------------------------------
-# GET /api/environment/latest/<device_id>
+# GET /api/co2/latest/<device_id>
 # ---------------------------------------------------------------------------
 
 def test_get_latest_device_returns_200(ec):
     _post(ec, _VALID_ENV)
-    assert ec.get(f"/api/environment/latest/{_DEVICE}").status_code == 200
+    assert ec.get(f"/api/co2/latest/{_DEVICE}").status_code == 200
 
 
 def test_get_latest_device_not_found_returns_404(ec):
-    assert ec.get("/api/environment/latest/nonexistent-99").status_code == 404
+    assert ec.get("/api/co2/latest/nonexistent-99").status_code == 404
 
 
 def test_get_latest_device_404_body_contains_error(ec):
-    data = ec.get("/api/environment/latest/nonexistent-99").get_json()
+    data = ec.get("/api/co2/latest/nonexistent-99").get_json()
     assert "error" in data
 
 
 def test_get_latest_device_data_matches(ec):
     _post(ec, _VALID_ENV)
-    data = ec.get(f"/api/environment/latest/{_DEVICE}").get_json()
+    data = ec.get(f"/api/co2/latest/{_DEVICE}").get_json()
     assert data["device_id"] == _DEVICE
     assert data["co2_ppm"] == 1520
     assert data["temperature_c"] == 21.4
@@ -280,26 +280,26 @@ def test_latest_is_updated_on_new_reading(ec):
     _post(ec, _VALID_ENV)
     # Post again with different CO2 — latest must reflect the new state.
     _post(ec, {**_VALID_ENV, "co2_ppm": 800, "uptime_ms": 9999})
-    data = ec.get(f"/api/environment/latest/{_DEVICE}").get_json()
+    data = ec.get(f"/api/co2/latest/{_DEVICE}").get_json()
     assert data["co2_ppm"] == 800
 
 
 def test_two_devices_stored_separately(ec):
     _post(ec, _VALID_ENV)
     _post(ec, {**_VALID_ENV, "device_id": "scd41-nano-02"})
-    data = ec.get("/api/environment/latest").get_json()
+    data = ec.get("/api/co2/latest").get_json()
     device_ids = {d["device_id"] for d in data["devices"]}
     assert _DEVICE in device_ids
     assert "scd41-nano-02" in device_ids
 
 
 # ---------------------------------------------------------------------------
-# GET /api/environment/history/<device_id>
+# GET /api/co2/history/<device_id>
 # ---------------------------------------------------------------------------
 
 def test_get_history_returns_200(ec):
     _post(ec, _VALID_ENV)
-    resp = ec.get(f"/api/environment/history/{_DEVICE}")
+    resp = ec.get(f"/api/co2/history/{_DEVICE}")
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["device_id"] == _DEVICE
@@ -308,14 +308,14 @@ def test_get_history_returns_200(ec):
 
 def test_get_history_contains_data_after_post(ec):
     _post(ec, _VALID_ENV)
-    data = ec.get(f"/api/environment/history/{_DEVICE}").get_json()
+    data = ec.get(f"/api/co2/history/{_DEVICE}").get_json()
     assert len(data["readings"]) >= 1
     reading = data["readings"][0]
     assert reading["co2_ppm"] == 1520
 
 
 def test_get_history_empty_device_returns_empty_list(ec):
-    data = ec.get("/api/environment/history/nonexistent-99").get_json()
+    data = ec.get("/api/co2/history/nonexistent-99").get_json()
     assert data["readings"] == []
 
 
@@ -323,7 +323,7 @@ def test_get_history_limit_is_respected(ec):
     # Post multiple readings with different uptime to bypass throttle
     # (but since throttle is 5s, only the first will be stored in history)
     _post(ec, _VALID_ENV)
-    data = ec.get(f"/api/environment/history/{_DEVICE}?limit=1").get_json()
+    data = ec.get(f"/api/co2/history/{_DEVICE}?limit=1").get_json()
     assert len(data["readings"]) <= 1
 
 

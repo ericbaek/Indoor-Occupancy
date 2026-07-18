@@ -262,7 +262,7 @@ _ENV_HIGH = {
 
 
 def _post_env(sc, payload=None):
-    return sc.post("/api/environment/readings", json=payload or _ENV_NORMAL)
+    return sc.post("/api/co2/readings", json=payload or _ENV_NORMAL)
 
 
 def test_status_co2_fields_null_when_no_environment_data(sc):
