@@ -65,6 +65,23 @@ export type OccupancyStatus = {
   last_occupancy_event_at: string | null;
   last_radar_update_at: string | null;
   mismatch_started_at: string | null;
+  // Environment / CO2 fields, surfaced on /api/occupancy/status alongside
+  // the SCD41 sensor endpoints (/api/co2/latest, /api/co2/history/<id>).
+  co2_ppm?: number | null;
+  co2_level?: "low" | "moderate" | "high" | string | null;
+  temperature_c?: number | null;
+  humidity_percent?: number | null;
+  last_environment_update_at?: string | null;
+};
+
+export type Co2Reading = {
+  id?: number;
+  device_id: string;
+  co2_ppm: number;
+  temperature_c: number;
+  humidity_percent: number;
+  uptime_ms: number;
+  received_at: string;
 };
 
 export type OccupancyEvent = {

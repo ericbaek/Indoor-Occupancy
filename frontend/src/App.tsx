@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Radar, Clock3, FileBarChart, Settings } from "lucide-react";
+import { Users, Radar, Clock3, FileBarChart, Settings, Wind } from "lucide-react";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
@@ -38,6 +38,22 @@ function getInitialTheme(): Theme {
   }
 }
 
+// Maps the backend's co2_level classification to a StatCard tone + tag.
+// Falls back gracefully if the backend sends an unrecognised value (or none
+// yet, e.g. sensor hasn't reported).
+function co2Presentation(level: string | null): { tone: "signal" | "amber" | "red" | "neutral"; tag: string } {
+  switch (level) {
+    case "low":
+      return { tone: "signal", tag: "Good" };
+    case "moderate":
+      return { tone: "amber", tag: "Moderate" };
+    case "high":
+      return { tone: "red", tag: "High CO2" };
+    default:
+      return { tone: "neutral", tag: "No data" };
+  }
+}
+
 function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -58,6 +74,7 @@ function App() {
     minute: "2-digit",
     second: "2-digit",
   });
+  const co2 = co2Presentation(data.co2Level);
 
   return (
     <div className="app-shell">
@@ -103,10 +120,19 @@ function App() {
                 tag={data.radarPresence ? "Radar active" : "Clear"}
               />
               <StatCard
+                icon={<Wind size={17} strokeWidth={2} />}
+                label="CO2 level"
+                value={data.co2Ppm !== null ? String(data.co2Ppm) : "—"}
+                unit={data.co2Ppm !== null ? "ppm" : undefined}
+                sub={data.temperatureC !== null ? `${data.temperatureC}\u00b0C \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
+                tone={co2.tone}
+                tag={co2.tag}
+              />
+              <StatCard
                 icon={<Clock3 size={17} strokeWidth={2} />}
                 label="Last updated"
                 value={lastUpdatedLabel}
-                sub="Polling every second"
+                sub="Polling every 1s"
                 tone="blue"
                 tag={data.isLive ? "Live" : "Stale"}
               />

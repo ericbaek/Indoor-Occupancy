@@ -70,6 +70,13 @@ export type OccupancyData = {
   lastRadarUpdateAt: string | null;
   /** When the current PIR/radar mismatch began, or null if none is active. */
   mismatchStartedAt: string | null;
+  /** Latest CO2 ppm reading from the SCD41 sensor, or null if none yet. */
+  co2Ppm: number | null;
+  /** Backend-classified level for the current co2Ppm ("low" | "moderate" | "high"). */
+  co2Level: string | null;
+  temperatureC: number | null;
+  humidityPercent: number | null;
+  lastEnvironmentUpdateAt: string | null;
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -91,6 +98,11 @@ const initialState: OccupancyData = {
   lastOccupancyEventAt: null,
   lastRadarUpdateAt: null,
   mismatchStartedAt: null,
+  co2Ppm: null,
+  co2Level: null,
+  temperatureC: null,
+  humidityPercent: null,
+  lastEnvironmentUpdateAt: null,
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -210,6 +222,11 @@ export function useOccupancyData(): OccupancyData {
           lastOccupancyEventAt: status.last_occupancy_event_at,
           lastRadarUpdateAt: status.last_radar_update_at,
           mismatchStartedAt: status.mismatch_started_at,
+          co2Ppm: status.co2_ppm ?? null,
+          co2Level: status.co2_level ?? null,
+          temperatureC: status.temperature_c ?? null,
+          humidityPercent: status.humidity_percent ?? null,
+          lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
           lastUpdated: new Date(),
           isLive: true,
           error: null,
