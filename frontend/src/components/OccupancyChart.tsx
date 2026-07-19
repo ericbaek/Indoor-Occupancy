@@ -3,14 +3,14 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, R
 import type { OccupancyPoint, OccupancyRange } from "../data";
 import "./OccupancyChart.css";
 
-const RANGES: OccupancyRange[] = ["1H", "6H", "1D", "1W", "1M"];
+const RANGES: OccupancyRange[] = ["5m", "10m", "30m", "1H", "2H"];
 
 const RANGE_SUBTITLE: Record<OccupancyRange, string> = {
+  "5m": "Last 5 minutes",
+  "10m": "Last 10 minutes",
+  "30m": "Last 30 minutes",
   "1H": "Last hour",
-  "6H": "Last 6 hours",
-  "1D": "Last 24 hours",
-  "1W": "Last 7 days",
-  "1M": "Last 30 days",
+  "2H": "Last 2 hours",
 };
 
 export default function OccupancyChart({
@@ -21,7 +21,7 @@ export default function OccupancyChart({
   dataByRange: Record<OccupancyRange, OccupancyPoint[]>;
   capacity: number;
 }) {
-  const [range, setRange] = useState<OccupancyRange>("1D");
+  const [range, setRange] = useState<OccupancyRange>("30m");
   const data = dataByRange[range];
 
   return (

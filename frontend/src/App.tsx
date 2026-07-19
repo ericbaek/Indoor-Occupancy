@@ -106,7 +106,7 @@ function App() {
                 icon={<Clock3 size={17} strokeWidth={2} />}
                 label="Last updated"
                 value={lastUpdatedLabel}
-                sub="Polling every 3s"
+                sub="Polling every second"
                 tone="blue"
                 tag={data.isLive ? "Live" : "Stale"}
               />

@@ -12,43 +12,43 @@ import type {
 // (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
-const POLL_MS = 3000;
+const POLL_MS = 1000;
 
 // How far back each range looks, and how many points to plot across that
-// window. Bucketing (rather than plotting raw events) keeps 1W/1M readable
-// once there's more than a handful of entries, and gives every range a
-// value even in the gaps between real events.
+// window. Bucketing (rather than plotting raw events) smooths the line even
+// with just a handful of entries, and gives every range a value even in the
+// gaps between real events.
 const RANGE_CONFIG: Record<OccupancyRange, { windowMs: number; buckets: number; label: (d: Date) => string }> = {
+  "5m": {
+    windowMs: 5 * 60 * 1000,
+    buckets: 10, // 30s per bucket
+    label: (d) => d.toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+  },
+  "10m": {
+    windowMs: 10 * 60 * 1000,
+    buckets: 10, // 1min per bucket
+    label: (d) => d.toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+  },
+  "30m": {
+    windowMs: 30 * 60 * 1000,
+    buckets: 15, // 2min per bucket
+    label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  },
   "1H": {
     windowMs: 60 * 60 * 1000,
-    buckets: 12,
+    buckets: 12, // 5min per bucket
     label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   },
-  "6H": {
-    windowMs: 6 * 60 * 60 * 1000,
-    buckets: 12,
+  "2H": {
+    windowMs: 2 * 60 * 60 * 1000,
+    buckets: 12, // 10min per bucket
     label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  },
-  "1D": {
-    windowMs: 24 * 60 * 60 * 1000,
-    buckets: 12,
-    label: (d) => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-  },
-  "1W": {
-    windowMs: 7 * 24 * 60 * 60 * 1000,
-    buckets: 7,
-    label: (d) => d.toLocaleDateString([], { weekday: "short" }),
-  },
-  "1M": {
-    windowMs: 30 * 24 * 60 * 60 * 1000,
-    buckets: 10,
-    label: (d) => d.toLocaleDateString([], { day: "2-digit", month: "short" }),
   },
 };
 
-// Fetch enough history to have a shot at filling the 1M window. The backend
-// only supports a flat `limit`, not a time-range filter, so we over-fetch
-// and bucket client-side.
+// Fetch enough history to comfortably fill the widest window (2H) with
+// real events. The backend only supports a flat `limit`, not a time-range
+// filter, so we over-fetch and bucket client-side.
 const EVENTS_FETCH_LIMIT = 500;
 
 export type OccupancyData = {
@@ -62,9 +62,9 @@ export type OccupancyData = {
   radarTargets: RadarTarget[];
   /** Recent entry/exit events, newest first, straight from the backend. */
   events: OccupancyEvent[];
-  /** Occupancy trend built from real events (running total, one point per event), for the "1D" tab. */
+  /** Occupancy trend built from real events (running total, one point per event), raw/unbucketed. */
   occupancySeries: OccupancyPoint[];
-  /** Same real event history, bucketed per range window — powers all 5 chart tabs. */
+  /** Same real event history, bucketed per range window — powers all 5 chart tabs (5m/10m/30m/1H/2H). */
   occupancySeriesByRange: Record<OccupancyRange, OccupancyPoint[]>;
   lastOccupancyEventAt: string | null;
   lastRadarUpdateAt: string | null;
@@ -76,7 +76,7 @@ export type OccupancyData = {
 };
 
 const EMPTY_RANGES: Record<OccupancyRange, OccupancyPoint[]> = {
-  "1H": [], "6H": [], "1D": [], "1W": [], "1M": [],
+  "5m": [], "10m": [], "30m": [], "1H": [], "2H": [],
 };
 
 const initialState: OccupancyData = {

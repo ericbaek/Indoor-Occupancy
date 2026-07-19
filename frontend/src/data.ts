@@ -31,7 +31,7 @@ export type Alert = {
 
 export type OccupancyPoint = { t: string; count: number };
 
-export type OccupancyRange = "1H" | "6H" | "1D" | "1W" | "1M";
+export type OccupancyRange = "5m" | "10m" | "30m" | "1H" | "2H";
 
 // ---------------------------------------------------------------------------
 // Real backend types — these mirror the actual JSON shapes returned by the
