@@ -1,0 +1,76 @@
+.room-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  height: 100%;
+}
+
+.room-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--signal);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.room-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-row {
+  display: grid;
+  grid-template-columns: 68px 40px 1fr 92px;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-pill {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: 6px;
+}
+.room-pill-safe { background: var(--signal-dim); color: #0E8477; }
+.room-pill-near-limit { background: var(--amber-dim); color: #A0591E; }
+.room-pill-over { background: var(--red-dim); color: #9B331F; }
+
+.room-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.room-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper);
+  overflow: hidden;
+}
+.room-bar-fill { height: 100%; border-radius: 999px; }
+.room-bar-safe { background: var(--signal); }
+.room-bar-near-limit { background: var(--amber); }
+.room-bar-over { background: var(--red); }
+
+.room-status {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: right;
+}
+.room-status-safe { color: #0E8477; }
+.room-status-near-limit { color: #A0591E; }
+.room-status-over { color: #9B331F; }

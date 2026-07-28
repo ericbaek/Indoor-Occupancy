@@ -1,0 +1,63 @@
+.sensor-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px 8px;
+}
+
+.sensor-table {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+}
+
+.sensor-row {
+  display: grid;
+  min-width: 500px;
+  grid-template-columns:
+    minmax(92px, 1.3fr)
+    minmax(76px, 1fr)
+    minmax(70px, 1fr)
+    minmax(70px, 1fr)
+    minmax(70px, 1fr)
+    minmax(90px, 1.2fr);
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.sensor-row-head {
+  border-top: none;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 8px;
+}
+
+.sensor-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sensor-mono {
+  font-family: var(--font-mono);
+}
+
+.sensor-yes { color: #0E8477; font-weight: 600; }
+.sensor-no { color: var(--text-faint); }
+
+.sensor-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.sensor-status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.sensor-status-online { color: #0E8477; }
+.sensor-status-online .sensor-status-dot { background: var(--signal); }
+.sensor-status-offline { color: #9B331F; }
+.sensor-status-offline .sensor-status-dot { background: var(--red); }

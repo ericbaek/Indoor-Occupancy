@@ -1,0 +1,137 @@
+.radar-panel {
+  background: var(--ink);
+  border-radius: 14px;
+  padding: 18px 20px 16px;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.radar-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.radar-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14.5px;
+}
+.radar-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.radar-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.radar-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.radar-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0 10px;
+}
+
+.radar-svg {
+  width: 100%;
+  max-width: 280px;
+  max-height: 100%;
+  height: 100%;
+}
+
+.radar-ring {
+  fill: none;
+  stroke: rgba(23, 179, 163, 0.22);
+  stroke-width: 1;
+}
+.radar-cross {
+  stroke: rgba(23, 179, 163, 0.14);
+  stroke-width: 1;
+}
+
+.radar-sweep-group {
+  transform-origin: 100px 100px;
+  animation: sweep 4s linear infinite;
+}
+.radar-sweep {
+  fill: rgba(23, 179, 163, 0.18);
+}
+@keyframes sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.radar-blip-halo {
+  fill: rgba(23, 179, 163, 0.28);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.radar-blip {
+  fill: var(--signal);
+}
+
+.radar-readout {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.radar-readout-row {
+  display: grid;
+  grid-template-columns: 24px repeat(3, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255,255,255,0.28);
+}
+.radar-readout-row.is-live {
+  color: rgba(255,255,255,0.85);
+}
+.radar-readout-id {
+  font-weight: 600;
+  color: var(--signal);
+}
+.radar-readout-row:not(.is-live) .radar-readout-id {
+  color: rgba(23, 179, 163, 0.35);
+}
+.radar-readout-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.radar-readout-k {
+  font-family: var(--font-body);
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.32);
+}

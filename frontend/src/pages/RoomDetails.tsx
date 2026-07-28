@@ -2,9 +2,9 @@ import AppLayout from "../layouts/AppLayout";
 
 export default function RoomDetails() {
   const sensors = [
-    ["CO₂ Sensor", "SCD41", "640 ppm", "Healthy air level"],
-    ["PIR Motion Sensor", "Active", "Motion detected", "Recent movement found"],
-    ["mmWave Radar", "Optional", "Not connected", "Future enhancement"],
+    ["PIR Entry Sensor", "Doorway PIR", "Active", "Entry direction monitoring"],
+    ["PIR Exit Sensor", "Doorway PIR", "Active", "Exit direction monitoring"],
+    ["mmWave Radar", "RD-03D", "Connected", "Presence confirmation"],
     ["Confidence Score", "Model estimate", "87%", "Reliable occupancy reading"],
   ];
 

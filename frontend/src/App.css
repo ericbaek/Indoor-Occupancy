@@ -1,0 +1,54 @@
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 22px 28px 40px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-page {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.mid-grid {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  grid-auto-rows: minmax(330px, 1fr);
+  flex: 1;
+  min-height: 330px;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.app-footer {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  padding-top: 12px;
+}
+
+@media (max-width: 800px) {
+  .dashboard-page { flex: none; min-height: auto; }
+  .mid-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(330px, auto);
+    flex: none;
+  }
+}

@@ -1,22 +1,189 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import RoomDetails from "./pages/RoomDetails";
-import History from "./pages/History";
-import Settings from "./pages/Settings";
+import { useEffect, useState } from "react";
+import { Users, Radar, Clock3, FileBarChart, Settings, Wind } from "lucide-react";
+import Sidebar, { type NavItem } from "./components/Sidebar";
+import Topbar from "./components/Topbar";
+import StatCard from "./components/StatCard";
+import DetectionStatusCard from "./components/DetectionStatusCard";
+import RadarScope from "./components/RadarScope";
+import OccupancyChart from "./components/OccupancyChart";
+import RoomList from "./components/RoomList";
+import SensorTable from "./components/SensorTable";
+import AlertsPanel from "./components/AlertsPanel";
+import PlaceholderPage from "./components/PlaceholderPage";
+// Rooms, sensor nodes, and alerts have no backend support yet
+// (the real system is a single doorway, not multi-room) — these stay mock
+// until that data model exists on the backend.
+import { sensorNodes, rooms, alerts } from "./data";
+import { useOccupancyData } from "./hooks/useOccupancyData";
+import "./App.css";
+
+const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
+  Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
+  Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
+  Sensors: { title: "Sensors", sub: "Live node status: PIR and mmWave" },
+  Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
+  Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
+  Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
+};
+
+type Theme = "light" | "dark";
+
+const THEME_STORAGE_KEY = "indoor-occupancy-theme";
+
+function getInitialTheme(): Theme {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+// Maps the backend's co2_level classification to a StatCard tone + tag.
+// Falls back gracefully if the backend sends an unrecognised value (or none
+// yet, e.g. sensor hasn't reported).
+function co2Presentation(level: string | null): { tone: "signal" | "amber" | "red" | "neutral"; tag: string } {
+  switch (level) {
+    case "low":
+      return { tone: "signal", tag: "Good" };
+    case "moderate":
+      return { tone: "amber", tag: "Moderate" };
+    case "high":
+      return { tone: "red", tag: "High CO2" };
+    default:
+      return { tone: "neutral", tag: "No data" };
+  }
+}
 
 function App() {
+  const [page, setPage] = useState<NavItem>("Dashboard");
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const data = useOccupancyData();
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The selected theme still applies when storage is unavailable.
+    }
+  }, [theme]);
+
+  const activeTargets = data.radarTargets.length;
+  const lastUpdatedLabel = data.lastUpdated.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const co2 = co2Presentation(data.co2Level);
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" />} />
-        <Route path="/login" element={<Login onLogin={() => (window.location.href = "/dashboard")} />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/room-details" element={<RoomDetails />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/settings" element={<Settings />} />
-      </Routes>
-    </BrowserRouter>
+    <div className="app-shell">
+      <Sidebar active={page} onNavigate={setPage} />
+      <main className="app-main">
+        <Topbar
+          title={TOPBAR_COPY[page].title}
+          sub={TOPBAR_COPY[page].sub}
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => current === "light" ? "dark" : "light")}
+        />
+
+        {page === "Dashboard" && (
+          <div className="dashboard-page">
+            {data.error && (
+              <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>
+                Live data unavailable ({data.error}) — showing last known values.
+              </p>
+            )}
+
+            <section className="stat-grid">
+              <StatCard
+                icon={<Users size={17} strokeWidth={2} />}
+                label="Current occupancy"
+                value={String(data.occupancy)}
+                sub="PIR entry/exit count"
+                tone="signal"
+                tag={data.isLive ? "Live" : "Offline"}
+              />
+              <DetectionStatusCard
+                status={data.status}
+                occupancy={data.occupancy}
+                radarPresence={data.radarPresence}
+                radarTargetCount={data.radarTargetCount}
+                mismatchStartedAt={data.mismatchStartedAt}
+              />
+              <StatCard
+                icon={<Radar size={17} strokeWidth={2} />}
+                label="Radar presence"
+                value={data.radarPresence ? "Detected" : "None"}
+                sub={`${data.radarTargetCount} target${data.radarTargetCount === 1 ? "" : "s"} (mmWave)`}
+                tone={data.radarPresence ? "amber" : "neutral"}
+                tag={data.radarPresence ? "Radar active" : "Clear"}
+              />
+              <StatCard
+                icon={<Wind size={17} strokeWidth={2} />}
+                label="CO2 level"
+                value={data.co2Ppm !== null ? String(data.co2Ppm) : "—"}
+                unit={data.co2Ppm !== null ? "ppm" : undefined}
+                sub={data.temperatureC !== null ? `${data.temperatureC}\u00b0C \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
+                tone={co2.tone}
+                tag={co2.tag}
+              />
+              <StatCard
+                icon={<Clock3 size={17} strokeWidth={2} />}
+                label="Last updated"
+                value={lastUpdatedLabel}
+                sub="Polling every 1s"
+                tone="blue"
+                tag={data.isLive ? "Live" : "Stale"}
+              />
+            </section>
+
+            <section className="mid-grid">
+              <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
+              <RadarScope targets={data.radarTargets} />
+            </section>
+
+            <p className="app-footer">
+              {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
+            </p>
+          </div>
+        )}
+
+        {page === "Rooms" && (
+          <section style={{ maxWidth: 640 }}>
+            <RoomList rooms={rooms} />
+          </section>
+        )}
+
+        {page === "Sensors" && (
+          <section>
+            <SensorTable nodes={sensorNodes} />
+          </section>
+        )}
+
+        {page === "Alerts" && (
+          <section style={{ maxWidth: 640 }}>
+            <AlertsPanel alerts={alerts} />
+          </section>
+        )}
+
+        {page === "Reports" && (
+          <PlaceholderPage
+            icon={FileBarChart}
+            title="Reports coming soon"
+            blurb="Exportable occupancy summaries and evaluation-metric reports (MAE, RMSE, fusion gain) will live here once historical backend queries are in."
+          />
+        )}
+
+        {page === "Settings" && (
+          <PlaceholderPage
+            icon={Settings}
+            title="Settings coming soon"
+            blurb="Configure per-room occupancy limits, PIR/mmWave thresholds, and privacy consent mode."
+          />
+        )}
+      </main>
+    </div>
   );
 }
 
