@@ -137,14 +137,15 @@ def _run_serial(port: str, baudrate: int, base_url: str) -> None:
         log.error(
             "pyserial is not installed.  Run: pip install pyserial"
         )
-        sys.exit(1)
+        raise RuntimeError("pyserial not installed")
 
     log.info("Opening serial port %s at %d baud", port, baudrate)
     try:
         ser = serial.Serial(port, baudrate=baudrate, timeout=1)
     except serial.SerialException as exc:
         log.error("Cannot open serial port %s: %s", port, exc)
-        sys.exit(1)
+        raise RuntimeError(f"Cannot open serial port {port}: {exc}") from exc
+
 
     log.info("Connected to %s.  Forwarding to %s", port, base_url)
     buffer = ""
