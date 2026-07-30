@@ -1,134 +1,131 @@
-from machine import Pin, I2C
-from time import sleep, ticks_ms
-import ujson
+"""
+co2.py — MicroPython SCD41 CO₂ sensor driver
+Board  : Arduino Nano 33 BLE Sense Rev2
+Sensor : DFRobot Gravity SCD41, SEN0536, I²C 0x62
+Wiring : SDA → A4 (Pin 18), SCL → A5 (Pin 19), VCC → 3.3 V, GND → GND
 
-SCD41_ADDRESS = 0x62
+Outputs one JSON line every 5 s:
+  {"message_type":"environment","device_id":"scd41-nano-01",
+   "uptime_ms":12000,"co2_ppm":491,"temperature_c":23.6,"humidity_percent":37.9}
+
+Run in Thonny (MicroPython interpreter), then save to Nano as main.py.
+Close Thonny before starting the gateway.
+"""
+
+import time
+try:
+    import ujson as json  # MicroPython
+except ImportError:
+    import json           # CircuitPython
+from machine import I2C, Pin
+
+_SDA_PIN = 18
+_SCL_PIN = 19
+_I2C_FREQ = 100_000
+
+_SCD41_ADDR       = 0x62
+_CMD_STOP_PERIODIC    = 0x3F86
+_CMD_START_PERIODIC   = 0x21B1
+_CMD_DATA_READY       = 0xE4B8
+_CMD_READ_MEASUREMENT = 0xEC05
+
 DEVICE_ID = "scd41-nano-01"
+MEASURE_INTERVAL_S = 5
 
-# use this for nano
-i2c = I2C(
-    0,
-    sda=Pin(31), # this is the A4 pin
-    scl=Pin(2),  # this is the A5 pin
-    freq=100000
-)
 
-# use this for pico
-# i2c = I2C(
-#     0,
-#     sda=Pin(8),
-#     scl=Pin(9),
-#     freq=100000
-# )
-
-def crc8(data):
+def _crc8(data: bytes) -> int:
     crc = 0xFF
-
     for byte in data:
         crc ^= byte
-
         for _ in range(8):
-            if crc & 0x80:
-                crc = ((crc << 1) ^ 0x31) & 0xFF
-            else:
-                crc = (crc << 1) & 0xFF
-
+            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
     return crc
 
-def send_command(command):
-    data = bytes([
-        (command >> 8) & 0xFF,
-        command & 0xFF
-    ])
 
-    i2c.writeto(SCD41_ADDRESS, data)
-
-def data_is_ready():
-    send_command(0xE4B8)
-    sleep(0.001)
-
-    data = i2c.readfrom(SCD41_ADDRESS, 3)
-
-    if crc8(data[0:2]) != data[2]:
-        raise RuntimeError("Data-ready CRC error")
-
-    status = (data[0] << 8) | data[1]
-
-    return (status & 0x07FF) != 0
+def _write_cmd(i2c: I2C, cmd: int) -> None:
+    i2c.writeto(_SCD41_ADDR, bytes([cmd >> 8, cmd & 0xFF]))
 
 
-def read_measurement():
-    send_command(0xEC05)
-    sleep(0.001)
-
-    data = i2c.readfrom(SCD41_ADDRESS, 9)
-
-    co2_bytes = data[0:2]
-    temperature_bytes = data[3:5]
-    humidity_bytes = data[6:8]
-
-    if crc8(co2_bytes) != data[2]:
-        raise RuntimeError("CO2 CRC error")
-
-    if crc8(temperature_bytes) != data[5]:
-        raise RuntimeError("Temperature CRC error")
-
-    if crc8(humidity_bytes) != data[8]:
-        raise RuntimeError("Humidity CRC error")
-
-    raw_co2 = (
-        co2_bytes[0] << 8
-    ) | co2_bytes[1]
-
-    raw_temperature = (
-        temperature_bytes[0] << 8
-    ) | temperature_bytes[1]
-
-    raw_humidity = (
-        humidity_bytes[0] << 8
-    ) | humidity_bytes[1]
-
-    co2 = raw_co2
-    temperature = -45 + (175 * raw_temperature / 65535)
-    humidity = 100 * raw_humidity / 65535
-
-    return co2, temperature, humidity
+def _read_response(i2c: I2C, cmd: int, n_words: int) -> list:
+    _write_cmd(i2c, cmd)
+    time.sleep_ms(1)
+    raw = i2c.readfrom(_SCD41_ADDR, n_words * 3)
+    values = []
+    for i in range(n_words):
+        msb, lsb, crc = raw[i*3], raw[i*3+1], raw[i*3+2]
+        if crc != _crc8(bytes([msb, lsb])):
+            raise ValueError("CRC mismatch on word {}".format(i))
+        values.append((msb << 8) | lsb)
+    return values
 
 
-def print_json(co2, temperature, humidity):
-    message = {
-        "message_type": "environment",
-        "device_id": DEVICE_ID,
-        "uptime_ms": ticks_ms(),
-        "co2_ppm": co2,
-        "temperature_c": round(temperature, 1),
-        "humidity_percent": round(humidity, 1)
-    }
+def scd41_stop_periodic(i2c: I2C) -> None:
+    _write_cmd(i2c, _CMD_STOP_PERIODIC)
+    time.sleep_ms(500)
 
-    print(ujson.dumps(message))
 
-# start periodic measurement
-send_command(0x21B1)
-print("Starting periodic measurements...")
+def scd41_start_periodic(i2c: I2C) -> None:
+    _write_cmd(i2c, _CMD_START_PERIODIC)
 
-# first reading takes about 5 seconds
-sleep(5)
 
-while True:
+def scd41_data_ready(i2c: I2C) -> bool:
+    words = _read_response(i2c, _CMD_DATA_READY, 1)
+    return (words[0] & 0x07FF) != 0
+
+
+def scd41_read_measurement(i2c: I2C) -> tuple:
+    words = _read_response(i2c, _CMD_READ_MEASUREMENT, 3)
+    co2_ppm       = words[0]
+    temperature_c = round(-45.0 + 175.0 * words[1] / 65535.0, 2)
+    humidity_pct  = round(100.0 * words[2] / 65535.0, 2)
+    return co2_ppm, temperature_c, humidity_pct
+
+
+def main() -> None:
+    i2c = I2C(1, sda=Pin(_SDA_PIN), scl=Pin(_SCL_PIN), freq=_I2C_FREQ)
+
     try:
-        if data_is_ready():
-            co2, temperature, humidity = read_measurement()
+        scd41_stop_periodic(i2c)
+    except OSError as exc:
+        print("Warning: stop_periodic failed:", exc)
 
-            print_json(
-                co2,
-                temperature,
-                humidity
-            )
+    try:
+        scd41_start_periodic(i2c)
+    except OSError as exc:
+        print("Error: start_periodic failed:", exc)
 
-    except OSError as error:
-        print("SCD41 communication error:", error)
+    time.sleep(MEASURE_INTERVAL_S)
 
-    except RuntimeError as error:
-        print("SCD41 measurement error:", error)
+    while True:
+        try:
+            if not scd41_data_ready(i2c):
+                time.sleep_ms(500)
+                continue
 
-    sleep(1)
+            co2_ppm, temperature_c, humidity_percent = scd41_read_measurement(i2c)
+
+            print(json.dumps({
+                "message_type":    "environment",
+                "device_id":       DEVICE_ID,
+                "uptime_ms":       time.ticks_ms(),
+                "co2_ppm":         co2_ppm,
+                "temperature_c":   temperature_c,
+                "humidity_percent": humidity_percent,
+            }))
+
+        except ValueError as exc:
+            print("CRC error:", exc)
+
+        except OSError as exc:
+            print("I2C error:", exc)
+            time.sleep_ms(1000)
+            try:
+                scd41_stop_periodic(i2c)
+                scd41_start_periodic(i2c)
+            except OSError:
+                pass
+
+        time.sleep(MEASURE_INTERVAL_S)
+
+
+main()
