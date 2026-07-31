@@ -1,44 +1,7 @@
 /**
  * ROOM-TAG-01 BLE Advertiser
- * ===========================
- * Arduino sketch for the Arduino Nano 33 BLE or Nano 33 BLE Sense Rev2.
  *
- * The board continuously broadcasts a non-connectable BLE advertisement
- * containing the Complete Local Name "ROOM-TAG-01".
- * Three fixed Windows laptops (anchors) scan for this advertisement and
- * measure RSSI to estimate the tag's position.
- *
- * The tag:
- *   - never connects to any device
- *   - never contacts the backend directly
- *   - broadcasts approximately every 200 ms
- *   - only identifies itself with an anonymous tag ID
- *
- * ─── How to change the tag ID ───────────────────────────────────────────────
- *   Edit the TAG_ID string below and re-upload the sketch.
- *   The tag ID must begin with "ROOM-TAG-" for the backend to accept it.
- *   Example: "ROOM-TAG-02" for a second participant.
- *
- * ─── How to upload ──────────────────────────────────────────────────────────
- *   1. Install the Arduino IDE (https://www.arduino.cc/en/software).
- *   2. In Arduino IDE: Tools > Board > Arduino Mbed OS Nano Boards >
- *      "Arduino Nano 33 BLE".
- *   3. Install ArduinoBLE library: Sketch > Include Library >
- *      Manage Libraries > search "ArduinoBLE" > Install.
- *   4. Open this file in Arduino IDE.
- *   5. Select the correct COM port: Tools > Port.
- *   6. Click Upload (→ button). The sketch compiles and flashes automatically.
- *   7. Open Serial Monitor (baud 115200) to see startup messages.
- *   8. Disconnect from the computer and attach a USB power bank.
- *      The sketch runs automatically on power-up without needing a PC.
- *
- * ─── Dependencies ────────────────────────────────────────────────────────────
- *   ArduinoBLE  (install via Arduino Library Manager)
- *
- * ─── Privacy note ────────────────────────────────────────────────────────────
- *   This device only advertises the anonymous tag ID above.
- *   No participant name, location, or personal data is embedded in the
- *   advertisement. The receiving laptops record only the tag ID and RSSI.
+ * Broadcasts a non-connectable BLE advertisement (ROOM-TAG-01) every 200ms.
  */
 
 #include <ArduinoBLE.h>

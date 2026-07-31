@@ -467,15 +467,15 @@ def test_estimate_position_closer_to_nearest_anchor():
     distances = {"anchor-left": 1.0, "anchor-right": 5.0, "anchor-back": 4.0}
     pos = estimate_position(distances)
     # anchor-left is at (0,0) and closest; result should be in left half
-    assert pos["x"] < 3.0
+    assert pos["x"] < ble_config.ROOM_DIMENSIONS["width"] / 2
 
 
 def test_estimate_position_two_anchors_equal_distance_is_midpoint():
-    # anchor-left (0,0) and anchor-right (6,0) at equal distance → centroid (3,0)
+    # Equal distances place the centroid halfway between the two anchors.
     distances = {"anchor-left": 1.0, "anchor-right": 1.0}
     pos = estimate_position(distances)
     assert pos is not None
-    assert pos["x"] == 3.0
+    assert pos["x"] == ble_config.ROOM_DIMENSIONS["width"] / 2
     assert pos["y"] == 0.0
 
 
@@ -570,22 +570,22 @@ def test_smooth_position_none_input_returns_none(monkeypatch):
 # ===========================================================================
 
 def test_coordinate_zone_left():
-    pos = {"x": 1.0, "y": 2.5}
+    pos = {"x": ble_config.ROOM_DIMENSIONS["width"] * 0.15, "y": 2.5}
     assert _get_coordinate_zone(pos) == "left"
 
 
 def test_coordinate_zone_right():
-    pos = {"x": 5.0, "y": 2.5}
+    pos = {"x": ble_config.ROOM_DIMENSIONS["width"] * 0.85, "y": 2.5}
     assert _get_coordinate_zone(pos) == "right"
 
 
 def test_coordinate_zone_back():
-    pos = {"x": 3.0, "y": 4.5}
+    pos = {"x": ble_config.ROOM_DIMENSIONS["width"] / 2, "y": 4.5}
     assert _get_coordinate_zone(pos) == "back"
 
 
 def test_coordinate_zone_centre():
-    pos = {"x": 3.0, "y": 1.5}
+    pos = {"x": ble_config.ROOM_DIMENSIONS["width"] / 2, "y": 1.5}
     assert _get_coordinate_zone(pos) == "centre"
 
 

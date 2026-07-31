@@ -27,7 +27,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 ROOM_DIMENSIONS: dict[str, float] = {
-    "width": 6.0,   # x axis (left → right)
+    "width": 8.0,   # x axis (left → right); current two-anchor test span
     "height": 5.0,  # y axis (front → back)
 }
 
@@ -47,12 +47,12 @@ ANCHOR_POSITIONS: dict[str, dict] = {
         "zone": "left",
     },
     "anchor-right": {
-        "x": 6.0,
+        "x": 8.0,
         "y": 0.0,
         "zone": "right",
     },
     "anchor-back": {
-        "x": 3.0,
+        "x": 4.0,
         "y": 5.0,
         "zone": "back",
     },
@@ -93,25 +93,25 @@ ANCHOR_CALIBRATION: dict[str, dict] = {
 ZONE_BOUNDARIES: dict[str, dict[str, float]] = {
     "left": {
         "x_min": 0.0,
-        "x_max": 2.0,
+        "x_max": 2.67,
         "y_min": 0.0,
         "y_max": 5.0,
     },
     "centre": {
-        "x_min": 2.0,
-        "x_max": 4.0,
+        "x_min": 2.67,
+        "x_max": 5.33,
         "y_min": 0.0,
         "y_max": 3.5,
     },
     "right": {
-        "x_min": 4.0,
-        "x_max": 6.0,
+        "x_min": 5.33,
+        "x_max": 8.0,
         "y_min": 0.0,
         "y_max": 5.0,
     },
     "back": {
-        "x_min": 2.0,
-        "x_max": 4.0,
+        "x_min": 2.67,
+        "x_max": 5.33,
         "y_min": 3.5,
         "y_max": 5.0,
     },

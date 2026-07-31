@@ -14,7 +14,7 @@ interface BleTrackerProps {
 }
 
 // Room dimensions (must match backend configuration)
-const ROOM_WIDTH = 6.0;
+const ROOM_WIDTH = 8.0;
 const ROOM_HEIGHT = 5.0;
 
 export default function BleTracker({ tagCount, positions, tagsFull }: BleTrackerProps) {
