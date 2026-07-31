@@ -9,6 +9,7 @@ import OccupancyChart from "./components/OccupancyChart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
+import BleTracker from "./components/BleTracker";
 import PlaceholderPage from "./components/PlaceholderPage";
 // Rooms, sensor nodes, and alerts have no backend support yet
 // (the real system is a single doorway, not multi-room) — these stay mock
@@ -142,6 +143,13 @@ function App() {
               <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
               <RadarScope targets={data.radarTargets} />
             </section>
+
+            <BleTracker 
+              tagCount={data.bleTagCount} 
+              zones={data.bleZones} 
+              positions={data.blePositions} 
+              tagsFull={data.bleTagsFull} 
+            />
 
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}

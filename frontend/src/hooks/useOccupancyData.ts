@@ -6,6 +6,7 @@ import type {
   OccupancyPoint,
   OccupancyRange,
   RadarDevice,
+  BlePosition,
 } from "../data";
 
 // Point this at your Flask backend. Override with a Vite env var
@@ -77,6 +78,10 @@ export type OccupancyData = {
   temperatureC: number | null;
   humidityPercent: number | null;
   lastEnvironmentUpdateAt: string | null;
+  bleTagCount: number;
+  bleZones: Record<string, number>;
+  blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
+  bleTagsFull: BlePosition[];
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -103,6 +108,10 @@ const initialState: OccupancyData = {
   temperatureC: null,
   humidityPercent: null,
   lastEnvironmentUpdateAt: null,
+  bleTagCount: 0,
+  bleZones: {},
+  blePositions: [],
+  bleTagsFull: [],
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -191,15 +200,22 @@ export function useOccupancyData(): OccupancyData {
 
     async function fetchLatest() {
       try {
-        const [statusRes, radarRes, eventsRes] = await Promise.all([
+        const [statusRes, radarRes, eventsRes, bleTagsRes] = await Promise.all([
           fetch(`${API_BASE}/occupancy/status`),
           fetch(`${API_BASE}/radar/latest`),
           fetch(`${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`),
+          fetch(`${API_BASE}/bluetooth/tags`),
         ]);
 
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
+        // don't fail if BLE is down, just log
+        let bleTagsFull: BlePosition[] = [];
+        if (bleTagsRes.ok) {
+           const bleJson = await bleTagsRes.json();
+           bleTagsFull = bleJson.tags || [];
+        }
 
         const status: OccupancyStatus = await statusRes.json();
         const radarJson: { devices: RadarDevice[] } = await radarRes.json();
@@ -227,6 +243,10 @@ export function useOccupancyData(): OccupancyData {
           temperatureC: status.temperature_c ?? null,
           humidityPercent: status.humidity_percent ?? null,
           lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
+          bleTagCount: status.bluetooth_tag_count ?? 0,
+          bleZones: status.bluetooth_zones ?? {},
+          blePositions: status.bluetooth_positions ?? [],
+          bleTagsFull,
           lastUpdated: new Date(),
           isLive: true,
           error: null,

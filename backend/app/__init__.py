@@ -32,6 +32,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .routes import api
     app.register_blueprint(api)
 
+    from .ble_routes import ble_api
+    app.register_blueprint(ble_api)
+
     CORS(app, origins=config.cors_origins, supports_credentials=False)
 
     _register_error_handlers(app)

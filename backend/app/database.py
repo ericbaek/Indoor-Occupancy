@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS environment_readings (
     humidity_percent REAL    NOT NULL,
     received_at      TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS bluetooth_readings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    scanner_id  TEXT    NOT NULL,
+    tag_id      TEXT    NOT NULL,
+    rssi        INTEGER NOT NULL,
+    tx_power    INTEGER,
+    received_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bluetooth_tag_time
+    ON bluetooth_readings(tag_id, received_at);
+
+CREATE INDEX IF NOT EXISTS idx_bluetooth_scanner_time
+    ON bluetooth_readings(scanner_id, received_at);
 """
 
 
@@ -554,4 +569,95 @@ def get_environment_history(
         (device_id, limit),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# BLE / Bluetooth RSSI storage helpers
+# ---------------------------------------------------------------------------
+
+def insert_bluetooth_reading(
+    *,
+    scanner_id: str,
+    tag_id: str,
+    rssi: int,
+    tx_power: int | None,
+) -> str:
+    """Insert a single BLE RSSI reading and return the server-generated
+    received_at timestamp.
+
+    Timestamps are always generated server-side; do not accept timestamps
+    from anchor laptops to avoid clock-skew issues.
+    """
+    received_at = _utc_now()
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO bluetooth_readings (scanner_id, tag_id, rssi, tx_power, received_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (scanner_id, tag_id, rssi, tx_power, received_at),
+    )
+    db.commit()
+    return received_at
+
+
+def get_recent_bluetooth_readings(
+    tag_id: str,
+    window_seconds: float = 2.0,
+) -> list[dict[str, Any]]:
+    """Return BLE readings for *tag_id* received within the last *window_seconds*.
+
+    Returns a list of dicts with keys: scanner_id, rssi, tx_power, received_at.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = (now - __import__('datetime').timedelta(seconds=window_seconds)).isoformat()
+    rows = get_db().execute(
+        """
+        SELECT scanner_id, rssi, tx_power, received_at
+        FROM bluetooth_readings
+        WHERE tag_id = ? AND received_at >= ?
+        ORDER BY received_at ASC
+        """,
+        (tag_id, cutoff),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_active_tags(
+    inactive_timeout_seconds: float = 5.0,
+) -> list[dict[str, Any]]:
+    """Return one row per tag_id that has had a reading within the timeout.
+
+    Each row: tag_id, last_seen_at (MAX received_at).
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = (now - __import__('datetime').timedelta(seconds=inactive_timeout_seconds)).isoformat()
+    rows = get_db().execute(
+        """
+        SELECT tag_id, MAX(received_at) AS last_seen_at
+        FROM bluetooth_readings
+        WHERE received_at >= ?
+        GROUP BY tag_id
+        ORDER BY tag_id
+        """,
+        (cutoff,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def cleanup_old_bluetooth_readings(retention_hours: float = 24.0) -> int:
+    """Delete BLE readings older than *retention_hours* and return the count
+    of deleted rows.
+
+    Call this from a periodic maintenance task, not on every request.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = (now - __import__('datetime').timedelta(hours=retention_hours)).isoformat()
+    db = get_db()
+    cursor = db.execute(
+        "DELETE FROM bluetooth_readings WHERE received_at < ?",
+        (cutoff,),
+    )
+    db.commit()
+    return cursor.rowcount
 
