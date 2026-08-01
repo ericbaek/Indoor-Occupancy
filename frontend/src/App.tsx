@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Radar, Clock3, FileBarChart, Settings, Wind } from "lucide-react";
+import { Users, Radar, Clock3, Settings, Wind } from "lucide-react";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
@@ -12,6 +12,7 @@ import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
 import BleTracker from "./components/BleTracker";
 import PlaceholderPage from "./components/PlaceholderPage";
+import Reports from "./pages/Reports";
 // Rooms, sensor nodes, and alerts have no backend support yet
 // (the real system is a single doorway, not multi-room) — these stay mock
 // until that data model exists on the backend.
@@ -184,13 +185,7 @@ function App() {
           </section>
         )}
 
-        {page === "Reports" && (
-          <PlaceholderPage
-            icon={FileBarChart}
-            title="Reports coming soon"
-            blurb="Exportable occupancy summaries and evaluation-metric reports (MAE, RMSE, fusion gain) will live here once historical backend queries are in."
-          />
-        )}
+        {page === "Reports" && <Reports />}
 
         {page === "Settings" && (
           <PlaceholderPage
