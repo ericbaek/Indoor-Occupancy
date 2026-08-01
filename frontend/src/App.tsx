@@ -6,6 +6,7 @@ import StatCard from "./components/StatCard";
 import DetectionStatusCard from "./components/DetectionStatusCard";
 import RadarScope from "./components/RadarScope";
 import OccupancyChart from "./components/OccupancyChart";
+import Co2Chart from "./components/Co2Chart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
@@ -16,6 +17,7 @@ import PlaceholderPage from "./components/PlaceholderPage";
 // until that data model exists on the backend.
 import { sensorNodes, rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
+import { useHealthCheck } from "./hooks/useHealthCheck";
 import "./App.css";
 
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
@@ -40,14 +42,15 @@ function getInitialTheme(): Theme {
 }
 
 // Maps the backend's co2_level classification to a StatCard tone + tag.
-// Falls back gracefully if the backend sends an unrecognised value (or none
-// yet, e.g. sensor hasn't reported).
+// Values match _co2_level() in backend/app/routes.py: "normal" (<800ppm),
+// "elevated" (800-1500ppm), "high" (>1500ppm). Falls back gracefully if
+// the backend sends something unrecognised (or none yet).
 function co2Presentation(level: string | null): { tone: "signal" | "amber" | "red" | "neutral"; tag: string } {
   switch (level) {
-    case "low":
+    case "normal":
       return { tone: "signal", tag: "Good" };
-    case "moderate":
-      return { tone: "amber", tag: "Moderate" };
+    case "elevated":
+      return { tone: "amber", tag: "Elevated" };
     case "high":
       return { tone: "red", tag: "High CO2" };
     default:
@@ -59,6 +62,7 @@ function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const data = useOccupancyData();
+  const health = useHealthCheck();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -86,6 +90,7 @@ function App() {
           sub={TOPBAR_COPY[page].sub}
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === "light" ? "dark" : "light")}
+          health={health}
         />
 
         {page === "Dashboard" && (
@@ -142,6 +147,10 @@ function App() {
             <section className="mid-grid">
               <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
               <RadarScope targets={data.radarTargets} />
+            </section>
+
+            <section className="co2-row">
+              <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} />
             </section>
 
             <BleTracker 

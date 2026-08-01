@@ -35,6 +35,35 @@
   color: var(--text-dim);
 }
 
+.health-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 12px;
+  cursor: default;
+}
+.health-badge.active {
+  background: var(--signal-dim);
+  color: var(--signal);
+}
+.health-badge.inactive {
+  background: var(--neutral-dim);
+  color: var(--text-faint);
+}
+.health-badge.down {
+  background: rgba(194, 67, 43, 0.12);
+  color: #C2432B;
+}
+.health-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .building-select {
   display: flex;
   align-items: center;

@@ -1,4 +1,5 @@
 import { Moon, Sun } from "lucide-react";
+import type { HealthState } from "../hooks/useHealthCheck";
 import "./Topbar.css";
 
 type TopbarProps = {
@@ -6,9 +7,16 @@ type TopbarProps = {
   sub: string;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  health: HealthState;
 };
 
-export default function Topbar({ title, sub, theme, onToggleTheme }: TopbarProps) {
+function healthLabel(health: HealthState): string {
+  if (health.status === "checking") return "Checking backend\u2026";
+  if (health.status === "ok") return `Backend OK \u00b7 DB ${health.database ?? "unknown"}`;
+  return "Backend unreachable";
+}
+
+export default function Topbar({ title, sub, theme, onToggleTheme, health }: TopbarProps) {
   const isLight = theme === "light";
 
   return (
@@ -18,6 +26,13 @@ export default function Topbar({ title, sub, theme, onToggleTheme }: TopbarProps
         <p className="topbar-sub">{sub}</p>
       </div>
       <div className="topbar-actions">
+        <span
+          className={`health-badge ${health.status === "ok" ? "active" : health.status === "error" ? "down" : "inactive"}`}
+          title={healthLabel(health)}
+        >
+          <span className="health-dot" />
+          {health.status === "ok" ? "Online" : health.status === "error" ? "Offline" : "\u2026"}
+        </span>
         <button
           className="icon-btn"
           type="button"

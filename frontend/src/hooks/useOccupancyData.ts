@@ -7,6 +7,8 @@ import type {
   OccupancyRange,
   RadarDevice,
   BlePosition,
+  Co2Reading,
+  Co2Point,
 } from "../data";
 
 // Point this at your Flask backend. Override with a Vite env var
@@ -52,6 +54,10 @@ const RANGE_CONFIG: Record<OccupancyRange, { windowMs: number; buckets: number; 
 // filter, so we over-fetch and bucket client-side.
 const EVENTS_FETCH_LIMIT = 500;
 
+// The co2/history endpoint caps at 200 server-side; 100 is plenty to fill
+// the chart without over-fetching every poll.
+const CO2_HISTORY_LIMIT = 100;
+
 export type OccupancyData = {
   /** Current occupancy count (sum of entry/exit events, clamped >= 0). */
   occupancy: number;
@@ -78,6 +84,10 @@ export type OccupancyData = {
   temperatureC: number | null;
   humidityPercent: number | null;
   lastEnvironmentUpdateAt: string | null;
+  /** CO2 device currently backing the status card, or null if none has reported. */
+  co2DeviceId: string | null;
+  /** Recent readings for co2DeviceId, oldest first, ready to plot. */
+  co2History: Co2Point[];
   bleTagCount: number;
   bleZones: Record<string, number>;
   blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
@@ -108,6 +118,8 @@ const initialState: OccupancyData = {
   temperatureC: null,
   humidityPercent: null,
   lastEnvironmentUpdateAt: null,
+  co2DeviceId: null,
+  co2History: [],
   bleTagCount: 0,
   bleZones: {},
   blePositions: [],
@@ -140,6 +152,20 @@ function buildOccupancySeries(eventsChronological: OccupancyEvent[]): OccupancyP
     running = Math.max(0, running + e.count_change);
     return { t: formatTimeLabel(e.received_at), count: running };
   });
+}
+
+function buildCo2Series(readingsNewestFirst: Co2Reading[]): Co2Point[] {
+  return [...readingsNewestFirst]
+    .reverse()
+    .map((r) => ({ t: formatTimeLabel(r.received_at), ppm: r.co2_ppm }));
+}
+
+function pickHighestCo2Device(devices: Co2Reading[]): string | null {
+  let best: Co2Reading | null = null;
+  for (const d of devices) {
+    if (best === null || d.co2_ppm > best.co2_ppm) best = d;
+  }
+  return best?.device_id ?? null;
 }
 
 type CumPoint = { ts: number; value: number };
@@ -221,6 +247,27 @@ export function useOccupancyData(): OccupancyData {
         const radarJson: { devices: RadarDevice[] } = await radarRes.json();
         const eventsJson: { events: OccupancyEvent[] } = await eventsRes.json();
 
+        let co2DeviceId: string | null = null;
+        let co2History: Co2Point[] = [];
+        try {
+          const co2LatestRes = await fetch(`${API_BASE}/co2/latest`);
+          if (co2LatestRes.ok) {
+            const co2LatestJson: { devices: Co2Reading[] } = await co2LatestRes.json();
+            co2DeviceId = pickHighestCo2Device(co2LatestJson.devices ?? []);
+            if (co2DeviceId) {
+              const co2HistRes = await fetch(
+                `${API_BASE}/co2/history/${encodeURIComponent(co2DeviceId)}?limit=${CO2_HISTORY_LIMIT}`
+              );
+              if (co2HistRes.ok) {
+                const co2HistJson: { readings: Co2Reading[] } = await co2HistRes.json();
+                co2History = buildCo2Series(co2HistJson.readings ?? []);
+              }
+            }
+          }
+        } catch (co2Err) {
+          console.error("useOccupancyData: co2 history lookup failed", co2Err);
+        }
+
         if (cancelledRef.current) return;
 
         // Backend returns newest-first; flip to chronological once, reuse everywhere.
@@ -243,6 +290,8 @@ export function useOccupancyData(): OccupancyData {
           temperatureC: status.temperature_c ?? null,
           humidityPercent: status.humidity_percent ?? null,
           lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
+          co2DeviceId,
+          co2History,
           bleTagCount: status.bluetooth_tag_count ?? 0,
           bleZones: status.bluetooth_zones ?? {},
           blePositions: status.bluetooth_positions ?? [],

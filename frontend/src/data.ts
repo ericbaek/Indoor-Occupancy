@@ -31,6 +31,8 @@ export type Alert = {
 
 export type OccupancyPoint = { t: string; count: number };
 
+export type Co2Point = { t: string; ppm: number };
+
 export type OccupancyRange = "5m" | "10m" | "30m" | "1H" | "2H";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +70,7 @@ export type OccupancyStatus = {
   // Environment / CO2 fields, surfaced on /api/occupancy/status alongside
   // the SCD41 sensor endpoints (/api/co2/latest, /api/co2/history/<id>).
   co2_ppm?: number | null;
-  co2_level?: "low" | "moderate" | "high" | string | null;
+  co2_level?: "normal" | "elevated" | "high" | string | null;
   temperature_c?: number | null;
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;

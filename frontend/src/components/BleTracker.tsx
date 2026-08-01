@@ -13,15 +13,32 @@ interface BleTrackerProps {
   tagsFull: BlePosition[];
 }
 
-// Room dimensions (must match backend configuration)
+// Room dimensions (must match backend ble_config.ROOM_DIMENSIONS)
 const ROOM_WIDTH = 8.0;
 const ROOM_HEIGHT = 5.0;
 
-export default function BleTracker({ tagCount, positions, tagsFull }: BleTrackerProps) {
+// Zone x-boundaries (must match backend ble_config.ZONE_BOUNDARIES).
+// "back" isn't drawn — it needs a 3rd anchor the current 2-anchor rig
+// doesn't have, so it's never actually reachable yet.
+const ZONE_BANDS: Array<{ zone: string; label: string; xMin: number; xMax: number }> = [
+  { zone: "left", label: "Left", xMin: 0, xMax: 2.67 },
+  { zone: "centre", label: "Centre", xMin: 2.67, xMax: 5.33 },
+  { zone: "right", label: "Right", xMin: 5.33, xMax: 8.0 },
+];
+
+function zoneCenterX(zone: string): number {
+  const band = ZONE_BANDS.find((b) => b.zone === zone);
+  return band ? (band.xMin + band.xMax) / 2 : ROOM_WIDTH / 2;
+}
+
+export default function BleTracker({ tagCount, tagsFull }: BleTrackerProps) {
   return (
     <div className="ble-tracker-card card-base">
       <div className="ble-header">
-        <h3 className="card-title">Approximate BLE Tracking</h3>
+        <div>
+          <h3 className="card-title">Approximate BLE Tracking</h3>
+          <p className="ble-header-note">2-anchor setup &middot; left / centre / right zone only</p>
+        </div>
         <span className={`ble-badge ${tagCount > 0 ? "active" : "inactive"}`}>
           {tagCount} Active Tag{tagCount !== 1 && "s"}
         </span>
@@ -34,32 +51,51 @@ export default function BleTracker({ tagCount, positions, tagsFull }: BleTracker
             viewBox={`0 0 ${ROOM_WIDTH * 100} ${ROOM_HEIGHT * 100}`}
             preserveAspectRatio="xMidYMid meet"
           >
-            {/* Background Grid */}
-            <defs>
-              <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
-                <path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--border)" strokeWidth="1" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-            <rect width="100%" height="100%" fill="none" stroke="var(--border)" strokeWidth="2" />
-
-            {/* Zone Labels */}
-            <text x="16.6%" y="50%" className="zone-label" textAnchor="middle" dominantBaseline="middle">Left</text>
-            <text x="50%" y="35%" className="zone-label" textAnchor="middle" dominantBaseline="middle">Centre</text>
-            <text x="83.3%" y="50%" className="zone-label" textAnchor="middle" dominantBaseline="middle">Right</text>
-            <text x="50%" y="85%" className="zone-label" textAnchor="middle" dominantBaseline="middle">Back</text>
-
-            {/* Tag Markers */}
-            {positions.map((pos) => {
-              // Clamp visual marker inside room
-              const x = Math.max(0, Math.min(pos.x, ROOM_WIDTH));
-              const y = Math.max(0, Math.min(pos.y, ROOM_HEIGHT));
+            {/* Zone bands — the unit of confidence this rig can actually
+                deliver right now, drawn as regions rather than points. */}
+            {ZONE_BANDS.map((band) => {
+              const occupiedByCount = tagsFull.filter((t) => t.stable_zone === band.zone).length;
               return (
-                <g key={pos.tag_id} className="tag-marker" transform={`translate(${x * 100}, ${y * 100})`}>
+                <g key={band.zone}>
+                  <rect
+                    x={band.xMin * 100}
+                    y={0}
+                    width={(band.xMax - band.xMin) * 100}
+                    height={ROOM_HEIGHT * 100}
+                    className={`zone-band${occupiedByCount > 0 ? " zone-band-occupied" : ""}`}
+                  />
+                  <text
+                    x={((band.xMin + band.xMax) / 2) * 100}
+                    y="50%"
+                    className="zone-label"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                  >
+                    {band.label}
+                  </text>
+                </g>
+              );
+            })}
+            {/* Zone divider lines */}
+            {[2.67, 5.33].map((x) => (
+              <line key={x} x1={x * 100} y1={0} x2={x * 100} y2={ROOM_HEIGHT * 100} className="zone-divider" />
+            ))}
+
+            {/* Tag markers — placed at the centre of their detected zone,
+                not at the raw (x, y) reading. With only 2 anchors, x is
+                noisy and y never moves, so plotting the raw point would
+                read as more precise than the data actually is. */}
+            {tagsFull.map((tag, i) => {
+              const cx = zoneCenterX(tag.stable_zone);
+              // Stack multiple tags in the same zone so they don't overlap.
+              const sameZoneBefore = tagsFull.slice(0, i).filter((t) => t.stable_zone === tag.stable_zone).length;
+              const cy = ROOM_HEIGHT / 2 + sameZoneBefore * 0.6;
+              return (
+                <g key={tag.tag_id} className="tag-marker" transform={`translate(${cx * 100}, ${cy * 100})`}>
                   <circle r="12" className="tag-pulse" />
                   <circle r="6" className="tag-dot" />
-                  <text x="15" y="4" className="tag-name">{pos.tag_id}</text>
-                  <text x="15" y="16" className="tag-coord">({pos.x.toFixed(1)}m, {pos.y.toFixed(1)}m)</text>
+                  <text x="15" y="4" className="tag-name">{tag.tag_id}</text>
+                  <text x="15" y="16" className="tag-zone-caption">{tag.stable_zone} zone</text>
                 </g>
               );
             })}
@@ -76,31 +112,26 @@ export default function BleTracker({ tagCount, positions, tagsFull }: BleTracker
                   <span className="ble-tag-id">{tag.tag_id}</span>
                   <span className={`ble-status-dot ${tag.status}`} title={tag.status} />
                 </div>
-                
+
+                <div className="ble-zone-primary">
+                  <span className={`zone-badge zone-badge-${tag.stable_zone}`}>{tag.stable_zone}</span>
+                </div>
+
                 <div className="ble-tag-info">
-                  <div className="ble-info-row">
-                    <span className="ble-info-label">Stable Zone:</span>
-                    <span className="ble-info-value capitalize">{tag.stable_zone}</span>
-                  </div>
-                  
                   {tag.position ? (
-                    <>
-                      <div className="ble-info-row">
-                        <span className="ble-info-label">Exp. Position:</span>
-                        <span className="ble-info-value">({tag.position.x.toFixed(1)}m, {tag.position.y.toFixed(1)}m)</span>
-                      </div>
-                      <div className="ble-info-row">
-                        <span className="ble-info-label">Confidence:</span>
-                        <span className="ble-info-value">{tag.confidence_db}%</span>
-                      </div>
-                    </>
+                    <div className="ble-info-row">
+                      <span className="ble-info-label">Raw estimate:</span>
+                      <span className="ble-info-value dim">
+                        ({tag.position.x.toFixed(1)}m, {tag.position.y.toFixed(1)}m) &middot; {tag.confidence_db}% &middot; experimental
+                      </span>
+                    </div>
                   ) : (
                     <div className="ble-info-row">
                       <span className="ble-info-label">Position:</span>
                       <span className="ble-info-value dim">Insufficient data</span>
                     </div>
                   )}
-                  
+
                   <div className="ble-info-row">
                     <span className="ble-info-label">Last seen:</span>
                     <span className="ble-info-value dim">
