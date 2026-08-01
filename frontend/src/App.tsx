@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Users, Radar, Clock3, Settings, Wind } from "lucide-react";
+import { useState } from "react";
+import { Users, Radar, Clock3, Wind } from "lucide-react";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
@@ -11,14 +11,15 @@ import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
 import BleTracker from "./components/BleTracker";
-import PlaceholderPage from "./components/PlaceholderPage";
 import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 // Rooms, sensor nodes, and alerts have no backend support yet
 // (the real system is a single doorway, not multi-room) — these stay mock
 // until that data model exists on the backend.
 import { sensorNodes, rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
 import { useHealthCheck } from "./hooks/useHealthCheck";
+import { usePreferences, formatTemperature } from "./hooks/usePreferences";
 import "./App.css";
 
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
@@ -27,20 +28,8 @@ const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Sensors: { title: "Sensors", sub: "Live node status: PIR and mmWave" },
   Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
   Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
-  Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
+  Settings: { title: "Settings", sub: "Theme, units, refresh rate and CO2 chart threshold" },
 };
-
-type Theme = "light" | "dark";
-
-const THEME_STORAGE_KEY = "indoor-occupancy-theme";
-
-function getInitialTheme(): Theme {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
-  } catch {
-    return "light";
-  }
-}
 
 // Maps the backend's co2_level classification to a StatCard tone + tag.
 // Values match _co2_level() in backend/app/routes.py: "normal" (<800ppm),
@@ -61,18 +50,9 @@ function co2Presentation(level: string | null): { tone: "signal" | "amber" | "re
 
 function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const data = useOccupancyData();
+  const { preferences, update: updatePreference } = usePreferences();
+  const data = useOccupancyData(preferences.pollMs);
   const health = useHealthCheck();
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // The selected theme still applies when storage is unavailable.
-    }
-  }, [theme]);
 
   const activeTargets = data.radarTargets.length;
   const lastUpdatedLabel = data.lastUpdated.toLocaleTimeString([], {
@@ -89,8 +69,6 @@ function App() {
         <Topbar
           title={TOPBAR_COPY[page].title}
           sub={TOPBAR_COPY[page].sub}
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => current === "light" ? "dark" : "light")}
           health={health}
         />
 
@@ -131,7 +109,7 @@ function App() {
                 label="CO2 level"
                 value={data.co2Ppm !== null ? String(data.co2Ppm) : "—"}
                 unit={data.co2Ppm !== null ? "ppm" : undefined}
-                sub={data.temperatureC !== null ? `${data.temperatureC}\u00b0C \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
+                sub={data.temperatureC !== null ? `${formatTemperature(data.temperatureC, preferences.units)} \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
                 tone={co2.tone}
                 tag={co2.tag}
               />
@@ -139,7 +117,7 @@ function App() {
                 icon={<Clock3 size={17} strokeWidth={2} />}
                 label="Last updated"
                 value={lastUpdatedLabel}
-                sub="Polling every 1s"
+                sub={`Polling every ${preferences.pollMs < 1000 ? `${preferences.pollMs}ms` : `${preferences.pollMs / 1000}s`}`}
                 tone="blue"
                 tag={data.isLive ? "Live" : "Stale"}
               />
@@ -151,7 +129,7 @@ function App() {
             </section>
 
             <section className="co2-row">
-              <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} />
+              <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} elevatedPpm={preferences.co2AlertThreshold} />
             </section>
 
             <BleTracker 
@@ -159,6 +137,7 @@ function App() {
               zones={data.bleZones} 
               positions={data.blePositions} 
               tagsFull={data.bleTagsFull} 
+              units={preferences.units}
             />
 
             <p className="app-footer">
@@ -188,11 +167,7 @@ function App() {
         {page === "Reports" && <Reports />}
 
         {page === "Settings" && (
-          <PlaceholderPage
-            icon={Settings}
-            title="Settings coming soon"
-            blurb="Configure per-room occupancy limits, PIR/mmWave thresholds, and privacy consent mode."
-          />
+          <Settings preferences={preferences} onUpdate={updatePreference} />
         )}
       </main>
     </div>

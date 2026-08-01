@@ -2,16 +2,16 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, R
 import type { Co2Point } from "../data";
 import "./OccupancyChart.css";
 
-/** ASHRAE-based reference line — above this, elevated CO2 suggests poor ventilation. */
-const ELEVATED_PPM = 800;
-
 export default function Co2Chart({
   data,
   deviceId,
+  elevatedPpm = 800,
 }: {
   /** Recent readings for one CO2 device, oldest first. */
   data: Co2Point[];
   deviceId: string | null;
+  /** User-configurable reference line (Settings \u2192 CO2 chart reference line). */
+  elevatedPpm?: number;
 }) {
   const hasData = data.length > 0;
 
@@ -40,10 +40,10 @@ export default function Co2Chart({
               <XAxis dataKey="t" tick={{ fontSize: 11, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "var(--text-faint)" }} axisLine={false} tickLine={false} width={38} allowDecimals={false} />
               <ReferenceLine
-                y={ELEVATED_PPM}
+                y={elevatedPpm}
                 stroke="#C2432B"
                 strokeDasharray="4 4"
-                label={{ value: `${ELEVATED_PPM} ppm`, position: "insideTopRight", fill: "#C2432B", fontSize: 10.5 }}
+                label={{ value: `${elevatedPpm} ppm`, position: "insideTopRight", fill: "#C2432B", fontSize: 10.5 }}
               />
               <Tooltip
                 contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12, fontFamily: "Inter" }}

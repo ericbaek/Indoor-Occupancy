@@ -15,7 +15,7 @@ import type {
 // (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
-const POLL_MS = 1000;
+const DEFAULT_POLL_MS = 1000;
 
 // How far back each range looks, and how many points to plot across that
 // window. Bucketing (rather than plotting raw events) smooths the line even
@@ -217,7 +217,7 @@ function buildAllRangeSeries(eventsChronological: OccupancyEvent[]): Record<Occu
  * NOT included here — the backend doesn't model those yet, so components
  * that need them still read the mock arrays directly from `../data`.
  */
-export function useOccupancyData(): OccupancyData {
+export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyData {
   const [state, setState] = useState<OccupancyData>(initialState);
   const cancelledRef = useRef(false);
 
@@ -312,12 +312,12 @@ export function useOccupancyData(): OccupancyData {
     }
 
     fetchLatest();
-    const id = setInterval(fetchLatest, POLL_MS);
+    const id = setInterval(fetchLatest, pollMs);
     return () => {
       cancelledRef.current = true;
       clearInterval(id);
     };
-  }, []);
+  }, [pollMs]);
 
   return state;
 }

@@ -23,17 +23,6 @@
   gap: 10px;
 }
 
-.icon-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: var(--text-dim);
-}
 
 .health-badge {
   display: flex;

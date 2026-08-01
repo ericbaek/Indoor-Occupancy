@@ -1,12 +1,9 @@
-import { Moon, Sun } from "lucide-react";
 import type { HealthState } from "../hooks/useHealthCheck";
 import "./Topbar.css";
 
 type TopbarProps = {
   title: string;
   sub: string;
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
   health: HealthState;
 };
 
@@ -16,9 +13,7 @@ function healthLabel(health: HealthState): string {
   return "Backend unreachable";
 }
 
-export default function Topbar({ title, sub, theme, onToggleTheme, health }: TopbarProps) {
-  const isLight = theme === "light";
-
+export default function Topbar({ title, sub, health }: TopbarProps) {
   return (
     <header className="topbar">
       <div>
@@ -33,14 +28,6 @@ export default function Topbar({ title, sub, theme, onToggleTheme, health }: Top
           <span className="health-dot" />
           {health.status === "ok" ? "Online" : health.status === "error" ? "Offline" : "\u2026"}
         </span>
-        <button
-          className="icon-btn"
-          type="button"
-          onClick={onToggleTheme}
-          aria-label={isLight ? "Switch to dark mode" : "Switch to light mode"}
-        >
-          {isLight ? <Moon size={16} strokeWidth={2} /> : <Sun size={16} strokeWidth={2} />}
-        </button>
       </div>
     </header>
   );

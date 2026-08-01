@@ -1,5 +1,6 @@
 import "./BleTracker.css";
 import type { BlePosition } from "../data";
+import { formatDistanceMetres, type Units } from "../hooks/usePreferences";
 
 interface BleTrackerProps {
   tagCount: number;
@@ -11,6 +12,7 @@ interface BleTrackerProps {
     label: string;
   }>;
   tagsFull: BlePosition[];
+  units: Units;
 }
 
 // Room dimensions (must match backend ble_config.ROOM_DIMENSIONS)
@@ -31,7 +33,7 @@ function zoneCenterX(zone: string): number {
   return band ? (band.xMin + band.xMax) / 2 : ROOM_WIDTH / 2;
 }
 
-export default function BleTracker({ tagCount, tagsFull }: BleTrackerProps) {
+export default function BleTracker({ tagCount, tagsFull, units }: BleTrackerProps) {
   return (
     <div className="ble-tracker-card card-base">
       <div className="ble-header">
@@ -122,7 +124,7 @@ export default function BleTracker({ tagCount, tagsFull }: BleTrackerProps) {
                     <div className="ble-info-row">
                       <span className="ble-info-label">Raw estimate:</span>
                       <span className="ble-info-value dim">
-                        ({tag.position.x.toFixed(1)}m, {tag.position.y.toFixed(1)}m) &middot; {tag.confidence_db}% &middot; experimental
+                        ({formatDistanceMetres(tag.position.x, units)}, {formatDistanceMetres(tag.position.y, units)}) &middot; {tag.confidence_db}% &middot; experimental
                       </span>
                     </div>
                   ) : (

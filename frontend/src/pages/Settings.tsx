@@ -1,41 +1,151 @@
-import AppLayout from "../layouts/AppLayout";
+import type { ReactNode } from "react";
+import { Moon, Sun, Ruler, RefreshCw, Wind } from "lucide-react";
+import type { Preferences, Theme, Units } from "../hooks/usePreferences";
+import { POLL_RATE_OPTIONS } from "../hooks/usePreferences";
+import "./Settings.css";
 
-export default function Settings() {
+/**
+ * Settings page — deliberately scoped to preferences that are fully
+ * functional today with no backend changes:
+ *   - theme (was previously a Topbar toggle, moved here)
+ *   - units (metric/imperial — affects temperature + BLE distance display)
+ *   - dashboard poll rate (actually feeds useOccupancyData's interval)
+ *   - CO2 chart reference line (client-side display only)
+ *
+ * Deliberately NOT here: per-room capacity limits, PIR/mmWave thresholds,
+ * BLE zone boundaries, account/notification prefs — those either need new
+ * backend endpoints (capacity, thresholds, zones are hardcoded server-side
+ * today) or would just be mock, and this page only holds settings that
+ * really do something when you change them.
+ */
+export default function Settings({
+  preferences,
+  onUpdate,
+}: {
+  preferences: Preferences;
+  onUpdate: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
+}) {
   return (
-    <AppLayout>
-      <p className="text-sm uppercase tracking-[0.3em] text-emerald-400">
-        System Controls
-      </p>
-      <h1 className="mt-3 text-5xl font-bold">Settings</h1>
-      <p className="mt-3 text-slate-400">
-        Configure alert limits and monitoring preferences.
-      </p>
-
-      <div className="mt-10 max-w-3xl rounded-3xl border border-emerald-400/20 bg-white/5 p-8">
-        <div className="space-y-6">
-          <div>
-            <label className="text-slate-300">Occupancy Limit</label>
-            <input
-              type="number"
-              defaultValue="25"
-              className="mt-2 w-full rounded-xl border border-emerald-400/20 bg-[#07130f] px-4 py-3 text-white outline-none focus:border-emerald-400"
+    <div className="settings-page">
+      <div className="settings-section">
+        <div className="settings-section-info">
+          <div className="settings-section-title">Appearance</div>
+          <div className="settings-section-sub">Light or dark theme for the whole dashboard.</div>
+        </div>
+        <div className="settings-control">
+          <div className="segmented">
+            <SegmentedButton
+              active={preferences.theme === "light"}
+              onClick={() => onUpdate("theme", "light" as Theme)}
+              icon={<Sun size={13} strokeWidth={2.25} />}
+              label="Light"
+            />
+            <SegmentedButton
+              active={preferences.theme === "dark"}
+              onClick={() => onUpdate("theme", "dark" as Theme)}
+              icon={<Moon size={13} strokeWidth={2.25} />}
+              label="Dark"
             />
           </div>
-
-          <div>
-            <label className="text-slate-300">Refresh Interval</label>
-            <select className="mt-2 w-full rounded-xl border border-emerald-400/20 bg-[#07130f] px-4 py-3 text-white outline-none focus:border-emerald-400">
-              <option>Every 5 seconds</option>
-              <option>Every 10 seconds</option>
-              <option>Every 30 seconds</option>
-            </select>
-          </div>
-
-          <button className="rounded-xl bg-emerald-400 px-6 py-3 font-semibold text-slate-950">
-            Save Settings
-          </button>
         </div>
       </div>
-    </AppLayout>
+
+      <div className="settings-section">
+        <div className="settings-section-info">
+          <div className="settings-section-title">Units</div>
+          <div className="settings-section-sub">
+            Temperature (&deg;C / &deg;F) and BLE tag distance (metres / feet) across the dashboard.
+          </div>
+        </div>
+        <div className="settings-control">
+          <div className="segmented">
+            <SegmentedButton
+              active={preferences.units === "metric"}
+              onClick={() => onUpdate("units", "metric" as Units)}
+              icon={<Ruler size={13} strokeWidth={2.25} />}
+              label="Metric"
+            />
+            <SegmentedButton
+              active={preferences.units === "imperial"}
+              onClick={() => onUpdate("units", "imperial" as Units)}
+              icon={<Ruler size={13} strokeWidth={2.25} />}
+              label="Imperial"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-info">
+          <div className="settings-section-title">Data refresh rate</div>
+          <div className="settings-section-sub">
+            How often the dashboard polls the backend for new readings. Lower = more live, more requests.
+          </div>
+        </div>
+        <div className="settings-control">
+          <div className="segmented">
+            {POLL_RATE_OPTIONS.map((ms) => (
+              <SegmentedButton
+                key={ms}
+                active={preferences.pollMs === ms}
+                onClick={() => onUpdate("pollMs", ms)}
+                label={ms < 1000 ? `${ms}ms` : `${ms / 1000}s`}
+                icon={<RefreshCw size={13} strokeWidth={2.25} />}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-info">
+          <div className="settings-section-title">CO2 chart reference line</div>
+          <div className="settings-section-sub">
+            <Wind size={12} strokeWidth={2.25} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+            Sets the dashed threshold shown on the CO2 trend chart. This is a display preference only &mdash; the
+            backend's actual normal / elevated / high classification on the CO2 stat card is unaffected.
+          </div>
+        </div>
+        <div className="settings-control">
+          <input
+            className="settings-number-input"
+            type="number"
+            min={200}
+            max={5000}
+            step={50}
+            value={preferences.co2AlertThreshold}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (!Number.isNaN(value)) onUpdate("co2AlertThreshold", value);
+            }}
+          />
+          <span className="settings-unit-suffix">ppm</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SegmentedButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`segmented-option${active ? " is-active" : ""}`}
+      onClick={onClick}
+      aria-pressed={active}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
