@@ -107,6 +107,7 @@ def list_tags():
                 "status": pos_data["status"],
                 "stable_zone": pos_data["stable_zone"],
                 "position": pos_data["position"],
+                "confidence_db": pos_data["confidence_db"],
                 "last_seen_at": pos_data["last_seen_at"],
             })
             
