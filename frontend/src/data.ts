@@ -5,15 +5,6 @@ export type RadarTarget = {
   speed: number;
 };
 
-export type SensorNode = {
-  id: string;
-  room: string;
-  pirOut: boolean;
-  pirIn: boolean;
-  mmwaveTargets: number;
-  status: "online" | "offline";
-};
-
 export type RoomState = {
   room: string;
   occupancy: number;
@@ -133,14 +124,6 @@ export const radarTargets: RadarTarget[] = [
   { id: 3, angle: 0, distance: 0, speed: 0 },
 ];
 
-export const sensorNodes: SensorNode[] = [
-  { id: "NODE-01", room: "K17-101", pirOut: true, pirIn: false, mmwaveTargets: 1, status: "online" },
-  { id: "NODE-02", room: "K17-101", pirOut: false, pirIn: false, mmwaveTargets: 1, status: "online" },
-  { id: "NODE-03", room: "K17-102", pirOut: true, pirIn: true, mmwaveTargets: 2, status: "online" },
-  { id: "NODE-04", room: "K17-103", pirOut: true, pirIn: false, mmwaveTargets: 0, status: "offline" },
-  { id: "NODE-05", room: "K17-104", pirOut: false, pirIn: false, mmwaveTargets: 0, status: "online" },
-];
-
 export const rooms: RoomState[] = [
   { room: "K17-101", occupancy: 24, capacity: 40, level: "safe" },
   { room: "K17-102", occupancy: 38, capacity: 40, level: "near-limit" },
@@ -152,6 +135,18 @@ export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
 ];
+
+// ---------------------------------------------------------------------------
+// Reports — mock, pending backend historical-query support.
+//
+// Nothing under backend/app/ computes MAE/RMSE/fusion-gain or stores
+// exportable summaries yet (confirmed: no "evaluation"/"fusion" logic in
+// routes.py, occupancy.py, or database.py as of this build). This section
+// is shaped to match what the backend WOULD need to return so the frontend
+// can be swapped from mock to live with no component changes — see the
+// contract notes below each type. Remove this comment block once
+// /api/reports/* exists and fetch() replaces these constants in Reports.tsx.
+// ---------------------------------------------------------------------------
 
 /** One row of the fusion evaluation table (per sensing modality / model). */
 export type EvaluationMetric = {

@@ -88,6 +88,8 @@ export type OccupancyData = {
   co2DeviceId: string | null;
   /** Recent readings for co2DeviceId, oldest first, ready to plot. */
   co2History: Co2Point[];
+  /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
+  radarDevices: RadarDevice[];
   bleTagCount: number;
   bleZones: Record<string, number>;
   blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
@@ -120,6 +122,7 @@ const initialState: OccupancyData = {
   lastEnvironmentUpdateAt: null,
   co2DeviceId: null,
   co2History: [],
+  radarDevices: [],
   bleTagCount: 0,
   bleZones: {},
   blePositions: [],
@@ -292,6 +295,7 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
           lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
           co2DeviceId,
           co2History,
+          radarDevices: radarJson.devices ?? [],
           bleTagCount: status.bluetooth_tag_count ?? 0,
           bleZones: status.bluetooth_zones ?? {},
           blePositions: status.bluetooth_positions ?? [],

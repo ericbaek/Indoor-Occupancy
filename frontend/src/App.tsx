@@ -13,10 +13,11 @@ import AlertsPanel from "./components/AlertsPanel";
 import BleTracker from "./components/BleTracker";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-// Rooms, sensor nodes, and alerts have no backend support yet
-// (the real system is a single doorway, not multi-room) — these stay mock
-// until that data model exists on the backend.
-import { sensorNodes, rooms, alerts } from "./data";
+// Rooms and alerts have no backend support yet (the real system is a
+// single doorway, not multi-room) — these stay mock until that data model
+// exists on the backend. Sensors is real (see SensorTable / data.radarDevices
+// / data.co2Ppm below).
+import { rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { usePreferences, formatTemperature } from "./hooks/usePreferences";
@@ -25,7 +26,7 @@ import "./App.css";
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
   Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
-  Sensors: { title: "Sensors", sub: "Live node status: PIR and mmWave" },
+  Sensors: { title: "Sensors", sub: "Live node status \u2014 online/offline from real backend readings" },
   Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
   Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
   Settings: { title: "Settings", sub: "Theme, units, refresh rate and CO2 chart threshold" },
@@ -154,7 +155,15 @@ function App() {
 
         {page === "Sensors" && (
           <section>
-            <SensorTable nodes={sensorNodes} />
+            <SensorTable
+              radarDevices={data.radarDevices}
+              co2Ppm={data.co2Ppm}
+              co2DeviceId={data.co2DeviceId}
+              lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
+              lastOccupancyEventAt={data.lastOccupancyEventAt}
+              lastEventType={data.events[0]?.event ?? null}
+              bleTagsFull={data.bleTagsFull}
+            />
           </section>
         )}
 
