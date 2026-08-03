@@ -1,22 +1,118 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import type { RadarTarget } from "../data";
 import "./RadarScope.css";
 
-const SIZE = 200;
-const CENTER = SIZE / 2;
-const MAX_RANGE = 600; // mm-ish scale for the RD-03D field of view
+const MAX_RANGE_MM = 8_000; // RD-03D specified maximum sensing distance.
+const MAX_TARGETS = 3;
+const FOV_HALF_ANGLE = 70;
+const SWEEP_HALF_ANGLE = 22;
+const TOP_INSET = 12;
+const SIDE_INSET = 12;
+const ORIGIN_BOTTOM_INSET = 4;
+const FALLBACK_SIZE = { width: 320, height: 220 };
 
-function toXY(angleDeg: number, distance: number) {
-  // RD-03D reports angle relative to boresight; 0deg = straight ahead (up).
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  const r = (Math.min(distance, MAX_RANGE) / MAX_RANGE) * (CENTER - 14);
+type RadarGeometry = {
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
+  radius: number;
+};
+
+function getRadarGeometry(width: number, height: number): RadarGeometry {
+  const cx = width / 2;
+  const cy = height - ORIGIN_BOTTOM_INSET;
+  const halfFovRad = (FOV_HALF_ANGLE * Math.PI) / 180;
+
+  // Grow until the fan reaches either the top inset or both side insets.
+  const radiusFromHeight = Math.max(0, cy - TOP_INSET);
+  const radiusFromWidth = Math.max(0, (cx - SIDE_INSET) / Math.sin(halfFovRad));
+
   return {
-    x: CENTER + r * Math.cos(rad),
-    y: CENTER + r * Math.sin(rad),
+    width,
+    height,
+    cx,
+    cy,
+    radius: Math.min(radiusFromHeight, radiusFromWidth),
   };
 }
 
+function toXY(
+  angleDeg: number,
+  distance: number,
+  { cx, cy, radius }: RadarGeometry,
+) {
+  // RD-03D reports 0deg straight ahead, with positive angles to the right.
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const normalizedDistance = Math.min(Math.max(distance / MAX_RANGE_MM, 0), 1);
+  const targetRadius = radius * normalizedDistance;
+
+  return {
+    x: cx + targetRadius * Math.sin(angleRad),
+    y: cy - targetRadius * Math.cos(angleRad),
+  };
+}
+
+function polarPoint(angleDeg: number, radius: number, cx: number, cy: number) {
+  const angleRad = (angleDeg * Math.PI) / 180;
+  return {
+    x: cx + radius * Math.sin(angleRad),
+    y: cy - radius * Math.cos(angleRad),
+  };
+}
+
+function arcPath(radius: number, cx: number, cy: number) {
+  const start = polarPoint(-FOV_HALF_ANGLE, radius, cx, cy);
+  const end = polarPoint(FOV_HALF_ANGLE, radius, cx, cy);
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 1 ${end.x} ${end.y}`;
+}
+
+function sweepPath(radius: number, cx: number, cy: number) {
+  const start = polarPoint(-SWEEP_HALF_ANGLE, radius, cx, cy);
+  const end = polarPoint(SWEEP_HALF_ANGLE, radius, cx, cy);
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 0 1 ${end.x} ${end.y} Z`;
+}
+
 export default function RadarScope({ targets }: { targets: RadarTarget[] }) {
-  const live = targets.filter((t) => t.distance > 0);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [scopeSize, setScopeSize] = useState(FALLBACK_SIZE);
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+
+    const updateSize = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+
+      setScopeSize((previous) => {
+        if (previous.width === width && previous.height === height) return previous;
+        return { width, height };
+      });
+    };
+
+    const initialRect = body.getBoundingClientRect();
+    updateSize(initialRect.width, initialRect.height);
+
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      updateSize(entry.contentRect.width, entry.contentRect.height);
+    });
+
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, []);
+
+  const geometry = getRadarGeometry(scopeSize.width, scopeSize.height);
+  const { width, height, cx, cy, radius } = geometry;
+  const visibleTargets = targets
+    .filter(
+      (target) =>
+        Number.isFinite(target.angle) &&
+        Number.isFinite(target.distance) &&
+        Number.isFinite(target.speed) &&
+        target.distance > 0,
+    )
+    .slice(0, MAX_TARGETS);
 
   return (
     <div className="radar-panel">
@@ -25,39 +121,54 @@ export default function RadarScope({ targets }: { targets: RadarTarget[] }) {
           <div className="radar-title">mmWave scope</div>
           <div className="radar-sub">RD-03D &middot; up to 3 simultaneous targets</div>
         </div>
-        <div className="radar-live">
+        <div
+          className={`radar-live ${visibleTargets.length > 0 ? "is-tracking" : "is-scanning"}`}
+          aria-live="polite"
+        >
           <span className="radar-live-dot" />
-          tracking
+          {visibleTargets.length > 0 ? "tracking" : "scanning"}
         </div>
       </div>
 
-      <div className="radar-body">
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="radar-svg" role="img" aria-label="mmWave radar scope">
-          {[1, 2, 3].map((i) => (
-            <circle
+      <div className="radar-body" ref={bodyRef}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="radar-svg"
+          role="img"
+          aria-label="mmWave radar scope"
+        >
+          {[1, 2, 3, 4, 5].map((i) => (
+            <path
               key={i}
-              cx={CENTER}
-              cy={CENTER}
-              r={((CENTER - 14) / 3) * i}
+              d={arcPath((radius / 5) * i, cx, cy)}
               className="radar-ring"
             />
           ))}
-          <line x1={CENTER} y1={14} x2={CENTER} y2={SIZE - 14} className="radar-cross" />
-          <line x1={14} y1={CENTER} x2={SIZE - 14} y2={CENTER} className="radar-cross" />
+          {[-70, -55, -40, -25, -10, 0, 10, 25, 40, 55, 70].map((angle) => {
+            const point = polarPoint(angle, radius, cx, cy);
+            return (
+              <line
+                key={angle}
+                x1={cx}
+                y1={cy}
+                x2={point.x}
+                y2={point.y}
+                className="radar-cross"
+              />
+            );
+          })}
 
-          <g className="radar-sweep-group">
-            <path
-              d={`M ${CENTER} ${CENTER} L ${CENTER} 14 A ${CENTER - 14} ${CENTER - 14} 0 0 1 ${
-                CENTER + (CENTER - 14) * Math.sin((40 * Math.PI) / 180)
-              } ${CENTER - (CENTER - 14) * Math.cos((40 * Math.PI) / 180)} Z`}
-              className="radar-sweep"
-            />
+          <g
+            className="radar-sweep-group"
+            style={{ transformOrigin: `${cx}px ${cy}px` }}
+          >
+            <path d={sweepPath(radius, cx, cy)} className="radar-sweep" />
           </g>
 
-          {live.map((t) => {
-            const { x, y } = toXY(t.angle, t.distance);
+          {visibleTargets.map((t, index) => {
+            const { x, y } = toXY(t.angle, t.distance, geometry);
             return (
-              <g key={t.id}>
+              <g key={`${t.id}-${index}`}>
                 <circle cx={x} cy={y} r={9} className="radar-blip-halo" />
                 <circle cx={x} cy={y} r={4} className="radar-blip" />
               </g>
@@ -66,24 +177,28 @@ export default function RadarScope({ targets }: { targets: RadarTarget[] }) {
         </svg>
       </div>
 
-      <div className="radar-readout">
-        {targets.map((t) => (
-          <div key={t.id} className={`radar-readout-row${t.distance > 0 ? " is-live" : ""}`}>
-            <span className="radar-readout-id">T{t.id}</span>
-            <span className="radar-readout-field">
-              <span className="radar-readout-k">angle</span>
-              {t.angle.toFixed(1)}&deg;
-            </span>
-            <span className="radar-readout-field">
-              <span className="radar-readout-k">dist</span>
-              {t.distance.toFixed(0)}mm
-            </span>
-            <span className="radar-readout-field">
-              <span className="radar-readout-k">spd</span>
-              {t.speed.toFixed(1)}
-            </span>
-          </div>
-        ))}
+      <div className="radar-readout" aria-label="Live radar target telemetry">
+        {visibleTargets.length > 0 ? (
+          visibleTargets.map((target, index) => (
+            <div key={`${target.id}-${index}`} className="radar-readout-row is-live">
+              <span className="radar-readout-id">T{target.id}</span>
+              <span className="radar-readout-field">
+                <span className="radar-readout-k">ANGLE</span>
+                {target.angle.toFixed(1)}&deg;
+              </span>
+              <span className="radar-readout-field">
+                <span className="radar-readout-k">DIST</span>
+                {target.distance.toFixed(0)}mm
+              </span>
+              <span className="radar-readout-field">
+                <span className="radar-readout-k">SPD</span>
+                {target.speed.toFixed(1)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="radar-readout-empty">NO TARGET DATA</div>
+        )}
       </div>
     </div>
   );
