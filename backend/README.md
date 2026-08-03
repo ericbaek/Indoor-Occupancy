@@ -90,6 +90,22 @@ backend/
 
 ## Setup
 
+### Docker Compose
+
+From the `Indoor-Occupancy/` directory, start the frontend and backend together:
+
+```bash
+docker compose up --build
+```
+
+- Dashboard: http://localhost:5173
+- API: http://localhost:5001
+
+The SQLite database is retained in the Docker volume `backend-data`. Stop the
+services with `docker compose down`; add `-v` only when you intentionally want
+to delete the stored database. The hardware serial gateway is not started by
+Compose because it needs access to a host serial device.
+
 ### Dependencies
 
 - Python 3.11+
