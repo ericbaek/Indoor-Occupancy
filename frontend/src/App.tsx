@@ -125,7 +125,7 @@ function App() {
             </section>
 
             <section className="mid-grid">
-              <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
+              <OccupancyChart data={data.occupancySeries} capacity={40} />
               <RadarScope targets={data.radarTargets} />
             </section>
 

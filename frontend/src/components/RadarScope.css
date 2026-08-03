@@ -47,7 +47,7 @@
 .radar-live.is-scanning .radar-live-dot {
   background: rgba(23, 179, 163, 0.58);
   box-shadow: 0 0 6px rgba(23, 179, 163, 0.45);
-  animation: pulse 1.6s ease-in-out infinite;
+  animation: radar-pulse 1.6s ease-in-out infinite;
 }
 .radar-live.is-tracking {
   color: #42f59b;
@@ -56,7 +56,7 @@
   background: #42f59b;
   box-shadow: 0 0 9px rgba(66, 245, 155, 0.9);
 }
-@keyframes pulse {
+@keyframes radar-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
@@ -104,7 +104,7 @@
 
 .radar-blip-halo {
   fill: rgba(66, 245, 155, 0.3);
-  animation: pulse 1.4s ease-in-out infinite;
+  animation: radar-pulse 1.4s ease-in-out infinite;
 }
 .radar-blip {
   fill: #42f59b;
