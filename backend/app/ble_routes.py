@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 
 from . import ble_config
 from . import ble_service
-from .database import insert_bluetooth_reading, get_active_tags
+from .database import insert_bluetooth_reading
 
 ble_api = Blueprint("ble_api", __name__, url_prefix="/api/bluetooth")
 
@@ -83,34 +83,39 @@ def post_reading():
 
 @ble_api.get("/position/<tag_id>")
 def get_position(tag_id: str):
-    """Calculate and return the estimated position and zone of a specific tag."""
+    """Backward-compatible URL returning zone-only state for a tag."""
     tag_id = tag_id.strip()
     if not tag_id.startswith("ROOM-TAG-"):
         return jsonify({"error": "Invalid tag ID"}), 400
-        
-    position_data = ble_service.get_tag_position(tag_id)
-    return jsonify(position_data), 200
+
+    return jsonify(ble_service.get_tag_state(tag_id)), 200
+
+
+@ble_api.get("/state/<tag_id>")
+def get_state(tag_id: str):
+    """Return the current left/right state and RSSI values for one tag."""
+    tag_id = tag_id.strip()
+    if not tag_id.startswith("ROOM-TAG-"):
+        return jsonify({"error": "Invalid tag ID"}), 400
+    return jsonify(ble_service.get_tag_state(tag_id)), 200
 
 
 @ble_api.get("/tags")
 def list_tags():
-    """Return all currently active participating tags."""
-    timeout = ble_config.BLE_SETTINGS["inactive_timeout_seconds"]
-    active_rows = get_active_tags(inactive_timeout_seconds=timeout)
-    
-    tags = []
-    for row in active_rows:
-        pos_data = ble_service.get_tag_position(row["tag_id"])
-        if pos_data["status"] == "inside":
-            tags.append({
-                "tag_id": pos_data["tag_id"],
-                "status": pos_data["status"],
-                "stable_zone": pos_data["stable_zone"],
-                "position": pos_data["position"],
-                "last_seen_at": pos_data["last_seen_at"],
-            })
-            
+    """Return unique active tags and left/right heatmap counts."""
+    return jsonify(ble_service.get_tracking_summary()), 200
+
+
+@ble_api.get("/count")
+def get_count():
+    """Return a compact unique active-tag count for the room heatmap."""
+    summary = ble_service.get_tracking_summary()
+    left_count = summary["zones"]["left"]["count"]
+    right_count = summary["zones"]["right"]["count"]
+
     return jsonify({
-        "active_tag_count": len(tags),
-        "tags": tags,
+        "total_active_tags": summary["total_active_tags"],
+        "zones": summary["zones"],
+        "unassigned_count": summary["total_active_tags"] - left_count - right_count,
+        "inactive_timeout_seconds": ble_config.BLE_SETTINGS["inactive_timeout_seconds"],
     }), 200

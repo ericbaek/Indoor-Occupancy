@@ -6,7 +6,9 @@ import type {
   OccupancyPoint,
   OccupancyRange,
   RadarDevice,
-  BlePosition,
+  BleTagState,
+  BleTrackingSummary,
+  BleZoneName,
 } from "../data";
 
 // Point this at your Flask backend. Override with a Vite env var
@@ -79,9 +81,8 @@ export type OccupancyData = {
   humidityPercent: number | null;
   lastEnvironmentUpdateAt: string | null;
   bleTagCount: number;
-  bleZones: Record<string, number>;
-  blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
-  bleTagsFull: BlePosition[];
+  bleZones: Record<BleZoneName, number>;
+  bleTags: BleTagState[];
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -109,9 +110,8 @@ const initialState: OccupancyData = {
   humidityPercent: null,
   lastEnvironmentUpdateAt: null,
   bleTagCount: 0,
-  bleZones: {},
-  blePositions: [],
-  bleTagsFull: [],
+  bleZones: { left: 0, right: 0 },
+  bleTags: [],
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -210,11 +210,10 @@ export function useOccupancyData(): OccupancyData {
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
-        // don't fail if BLE is down, just log
-        let bleTagsFull: BlePosition[] = [];
+        // Do not fail the other sensor dashboard if only BLE is unavailable.
+        let bleSummary: BleTrackingSummary | null = null;
         if (bleTagsRes.ok) {
-           const bleJson = await bleTagsRes.json();
-           bleTagsFull = bleJson.tags || [];
+          bleSummary = await bleTagsRes.json();
         }
 
         const status: OccupancyStatus = await statusRes.json();
@@ -243,10 +242,12 @@ export function useOccupancyData(): OccupancyData {
           temperatureC: status.temperature_c ?? null,
           humidityPercent: status.humidity_percent ?? null,
           lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
-          bleTagCount: status.bluetooth_tag_count ?? 0,
-          bleZones: status.bluetooth_zones ?? {},
-          blePositions: status.bluetooth_positions ?? [],
-          bleTagsFull,
+          bleTagCount: bleSummary?.total_active_tags ?? status.bluetooth_tag_count ?? 0,
+          bleZones: {
+            left: bleSummary?.zones.left.count ?? status.bluetooth_zones?.left ?? 0,
+            right: bleSummary?.zones.right.count ?? status.bluetooth_zones?.right ?? 0,
+          },
+          bleTags: bleSummary?.tags ?? [],
           lastUpdated: new Date(),
           isLive: true,
           error: null,

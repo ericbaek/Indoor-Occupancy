@@ -147,8 +147,7 @@ function App() {
             <BleTracker 
               tagCount={data.bleTagCount} 
               zones={data.bleZones} 
-              positions={data.blePositions} 
-              tagsFull={data.bleTagsFull} 
+              tags={data.bleTags}
             />
 
             <p className="app-footer">

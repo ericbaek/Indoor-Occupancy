@@ -26,7 +26,6 @@ from .database import (
     upsert_radar_latest,
 )
 from .occupancy import compute_new_count, get_occupancy_level
-from . import ble_config
 from . import ble_service
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -723,28 +722,12 @@ def get_occupancy_status():
         if _mismatch_started_at is None:
             _mismatch_started_at = now_str
 
-    # BLE Tag tracking integration
-    from .database import get_active_tags
-    active_rows = get_active_tags(inactive_timeout_seconds=ble_config.BLE_SETTINGS["inactive_timeout_seconds"])
-    
-    bluetooth_tag_count = 0
-    bluetooth_zones = {z: 0 for z in ble_config.ZONE_BOUNDARIES}
-    bluetooth_positions = []
-    
-    for row in active_rows:
-        pos_data = ble_service.get_tag_position(row["tag_id"])
-        if pos_data["status"] == "inside":
-            bluetooth_tag_count += 1
-            zone = pos_data["stable_zone"]
-            if zone in bluetooth_zones:
-                bluetooth_zones[zone] += 1
-            if pos_data["position"]:
-                bluetooth_positions.append({
-                    "tag_id": pos_data["tag_id"],
-                    "x": pos_data["position"]["x"],
-                    "y": pos_data["position"]["y"],
-                    "label": pos_data["position"]["label"],
-                })
+    # BLE Tag tracking integration (two RSSI zones; no distance/coordinates).
+    bluetooth_summary = ble_service.get_tracking_summary()
+    bluetooth_tag_count = bluetooth_summary["total_active_tags"]
+    bluetooth_zones = {
+        zone: data["count"] for zone, data in bluetooth_summary["zones"].items()
+    }
 
     return jsonify({
         "occupancy": occupancy,
@@ -761,5 +744,4 @@ def get_occupancy_status():
         "mismatch_started_at": _mismatch_started_at,
         "bluetooth_tag_count": bluetooth_tag_count,
         "bluetooth_zones": bluetooth_zones,
-        "bluetooth_positions": bluetooth_positions,
     }), 200

@@ -73,33 +73,24 @@ export type OccupancyStatus = {
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;
   bluetooth_tag_count?: number;
-  bluetooth_zones?: Record<string, number>;
-  bluetooth_positions?: Array<{
-    tag_id: string;
-    x: number;
-    y: number;
-    label: string;
-  }>;
+  bluetooth_zones?: Record<BleZoneName, number>;
 };
 
-export type BlePosition = {
+export type BleZoneName = "left" | "right";
+
+export type BleTagState = {
   tag_id: string;
-  status: "inside" | "outside" | "unknown";
-  zone: string;
-  stable_zone: string;
-  position: {
-    x: number;
-    y: number;
-    unit: string;
-    method: string;
-    label: string;
-    quality: number;
-  } | null;
-  strongest_scanner: string | null;
-  confidence_db: number;
-  scanner_rssi: Record<string, number>;
-  estimated_distances: Record<string, number>;
-  last_seen_at: string;
+  status: "active" | "inactive";
+  current_zone: BleZoneName | "unknown";
+  scanner_rssi: Partial<Record<"anchor-left" | "anchor-right", number>>;
+  active_scanners: string[];
+  last_seen_at: string | null;
+};
+
+export type BleTrackingSummary = {
+  total_active_tags: number;
+  zones: Record<BleZoneName, { count: number }>;
+  tags: BleTagState[];
 };
 
 export type Co2Reading = {
