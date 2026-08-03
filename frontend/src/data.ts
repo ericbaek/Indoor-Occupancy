@@ -20,11 +20,7 @@ export type Alert = {
   time: string;
 };
 
-export type OccupancyPoint = {
-  /** Epoch milliseconds for the actual API reading (or its receipt time). */
-  timestamp: number;
-  count: number;
-};
+export type OccupancyPoint = { t: string; count: number };
 
 export type Co2Point = { t: string; ppm: number };
 
@@ -77,10 +73,6 @@ export type OccupancyStatus = {
     y: number;
     label: string;
   }>;
-  /** Optional per-snapshot API timestamps; receipt time is used when absent. */
-  timestamp?: string | number | null;
-  received_at?: string | null;
-  reading_at?: string | null;
 };
 
 export type BlePosition = {
