@@ -6,14 +6,11 @@ import type {
   OccupancyPoint,
   OccupancyRange,
   RadarDevice,
-  BleSignalSummary,
   Co2Reading,
   Co2Point,
 } from "../data";
 
-// The native Vite server proxies /api to the local Flask backend. A relative
-// URL therefore works from localhost and from another computer on the room
-// network without embedding the Main PC address in the frontend bundle.
+// Vite proxies /api to Flask during native development.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 const DEFAULT_POLL_MS = 1000;
@@ -91,8 +88,6 @@ export type OccupancyData = {
   co2History: Co2Point[];
   /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
   radarDevices: RadarDevice[];
-  /** Relative RSSI intensity from the two Bluetooth anchors; never a count. */
-  bleSignal: BleSignalSummary;
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -100,33 +95,6 @@ export type OccupancyData = {
 
 const EMPTY_RANGES: Record<OccupancyRange, OccupancyPoint[]> = {
   "5m": [], "10m": [], "30m": [], "1H": [], "2H": [],
-};
-
-const EMPTY_BLE_SIGNAL: BleSignalSummary = {
-  measurement: "relative_bluetooth_signal_intensity",
-  zones: {
-    left: {
-      anchor_id: "left-anchor",
-      zone: "left",
-      status: "offline",
-      average_rssi: null,
-      signal_score: null,
-      last_seen_at: null,
-      calibration_offset_db: 0,
-    },
-    right: {
-      anchor_id: "right-anchor",
-      zone: "right",
-      status: "offline",
-      average_rssi: null,
-      signal_score: null,
-      last_seen_at: null,
-      calibration_offset_db: 0,
-    },
-  },
-  stronger_zone: null,
-  anchor_timeout_seconds: 15,
-  ema_alpha: 0.3,
 };
 
 const initialState: OccupancyData = {
@@ -149,7 +117,6 @@ const initialState: OccupancyData = {
   co2DeviceId: null,
   co2History: [],
   radarDevices: [],
-  bleSignal: EMPTY_BLE_SIGNAL,
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -252,21 +219,15 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
 
     async function fetchLatest() {
       try {
-        const [statusRes, radarRes, eventsRes, bleSignalRes] = await Promise.all([
+        const [statusRes, radarRes, eventsRes] = await Promise.all([
           fetch(`${API_BASE}/occupancy/status`),
           fetch(`${API_BASE}/radar/latest`),
           fetch(`${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`),
-          fetch(`${API_BASE}/bluetooth/signal-strength`),
         ]);
 
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
-        // Do not fail the other sensor dashboard if only BLE is unavailable.
-        let bleSignal: BleSignalSummary = EMPTY_BLE_SIGNAL;
-        if (bleSignalRes.ok) {
-          bleSignal = await bleSignalRes.json();
-        }
 
         const status: OccupancyStatus = await statusRes.json();
         const radarJson: { devices: RadarDevice[] } = await radarRes.json();
@@ -318,7 +279,6 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
           co2DeviceId,
           co2History,
           radarDevices: radarJson.devices ?? [],
-          bleSignal,
           lastUpdated: new Date(),
           isLive: true,
           error: null,

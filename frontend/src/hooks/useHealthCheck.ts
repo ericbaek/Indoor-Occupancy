@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-// Match the occupancy hook: the native Vite server proxies /api to Flask, so
-// health checks work from localhost and from another laptop on the LAN.
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
 // Health barely changes — poll far less often than the 1s occupancy loop.
 const POLL_MS = 5000;

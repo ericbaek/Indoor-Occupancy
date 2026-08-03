@@ -1,10 +1,14 @@
-import type { BleSignalSummary, RadarDevice } from "../data";
+import type { RadarDevice } from "../data";
 import { isRecentlySeen, timeAgoLabel } from "../lib/sensorHealth";
 import "./SensorTable.css";
 
-const RADAR_STALE_MS = 15_000;
-const CO2_STALE_MS = 30_000;
-const PIR_STALE_MS = 60_000;
+// Staleness windows, tuned per sensor type based on how it actually
+// reports (see sensorHealth.ts). Not user-configurable — these reflect
+// real reporting cadence, not a display preference like the CO2 chart
+// threshold in Settings.
+const RADAR_STALE_MS = 15_000; // continuous mmWave polling (will go offline after 15 sec of inactivity)
+const CO2_STALE_MS = 30_000; // continuous SCD41 polling (will go offline after 30 sec of inactivity)
+const PIR_STALE_MS = 60_000; // event-driven (will go offline after 1 minute of inactivity)
 
 type SensorStatus = "online" | "offline";
 
@@ -16,42 +20,25 @@ type SensorRow = {
   status: SensorStatus;
 };
 
-function buildBleAnchorRows(bleSignal: BleSignalSummary): SensorRow[] {
-  return (["left", "right"] as const).map((zoneName) => {
-    const anchor = bleSignal.zones[zoneName];
-    if (anchor.status === "active") {
-      return {
-        node: anchor.anchor_id,
-        type: "BLE anchor",
-        detail: anchor.average_rssi === null
-          ? `Signal ${Math.round(anchor.signal_score ?? 0)}/100 · no advertisements`
-          : `Signal ${Math.round(anchor.signal_score ?? 0)}/100 · ${anchor.average_rssi.toFixed(1)} dBm`,
-        lastSeen: anchor.last_seen_at,
-        status: "online" as SensorStatus,
-      };
-    }
-
-    return {
-      node: anchor.anchor_id,
-      type: "BLE anchor",
-      detail: "No recent signal data",
-      lastSeen: anchor.last_seen_at,
-      status: "offline" as SensorStatus,
-    };
-  });
-}
-
 function buildRows(
   radarDevices: RadarDevice[],
   co2Ppm: number | null,
   co2DeviceId: string | null,
   lastEnvironmentUpdateAt: string | null,
   lastOccupancyEventAt: string | null,
-  lastEventType: "entry" | "exit" | null,
-  bleSignal: BleSignalSummary
+  lastEventType: "entry" | "exit" | null
 ): SensorRow[] {
   const rows: SensorRow[] = [];
 
+  // PIR is a single physical doorway sensor \u2014 not two separate
+  // in/out sensors \u2014 that reports one event stream tagged "entry" or
+  // "exit". "Online" here means "is the sensor actually sending data",
+  // same as every other row; it deliberately does NOT mean "is someone
+  // currently inside" \u2014 that's an occupancy STATE (shown in the detail
+  // column below), not a connectivity signal. Conflating the two would
+  // make "Offline" ambiguous between "sensor broken" and "nobody's
+  // walked through lately", which is a bad failure mode to read at a
+  // glance.
   const directionDetail =
     lastEventType === "entry" ? "Last: Entry" : lastEventType === "exit" ? "Last: Exit" : "No events received yet";
   rows.push({
@@ -62,16 +49,21 @@ function buildRows(
     status: isRecentlySeen(lastOccupancyEventAt, PIR_STALE_MS) ? "online" : "offline",
   });
 
-  for (const device of radarDevices) {
+  for (const dev of radarDevices) {
     rows.push({
-      node: device.device_id,
+      node: dev.device_id,
       type: "mmWave (RD-03D)",
-      detail: `${device.target_count} target${device.target_count === 1 ? "" : "s"}`,
-      lastSeen: device.received_at,
-      status: isRecentlySeen(device.received_at, RADAR_STALE_MS) ? "online" : "offline",
+      detail: `${dev.target_count} target${dev.target_count === 1 ? "" : "s"}`,
+      lastSeen: dev.received_at,
+      status: isRecentlySeen(dev.received_at, RADAR_STALE_MS) ? "online" : "offline",
     });
   }
 
+  // There's exactly one physical CO2 sensor in the real system, so this is
+  // always a single row \u2014 driven by the same aggregated status the
+  // Dashboard's CO2 StatCard uses (/api/occupancy/status), not a per-device
+  // list. That also means stale/leftover device_ids from old test runs
+  // never show up here as permanent ghost rows.
   rows.push({
     node: co2DeviceId ?? "CO2 sensor",
     type: "CO2 (SCD41)",
@@ -80,7 +72,6 @@ function buildRows(
     status: isRecentlySeen(lastEnvironmentUpdateAt, CO2_STALE_MS) ? "online" : "offline",
   });
 
-  rows.push(...buildBleAnchorRows(bleSignal));
   return rows;
 }
 
@@ -91,7 +82,6 @@ export default function SensorTable({
   lastEnvironmentUpdateAt,
   lastOccupancyEventAt,
   lastEventType,
-  bleSignal,
 }: {
   radarDevices: RadarDevice[];
   co2Ppm: number | null;
@@ -99,7 +89,6 @@ export default function SensorTable({
   lastEnvironmentUpdateAt: string | null;
   lastOccupancyEventAt: string | null;
   lastEventType: "entry" | "exit" | null;
-  bleSignal: BleSignalSummary;
 }) {
   const rows = buildRows(
     radarDevices,
@@ -107,16 +96,15 @@ export default function SensorTable({
     co2DeviceId,
     lastEnvironmentUpdateAt,
     lastOccupancyEventAt,
-    lastEventType,
-    bleSignal
+    lastEventType
   );
-  const onlineCount = rows.filter((row) => row.status === "online").length;
+  const onlineCount = rows.filter((r) => r.status === "online").length;
 
   return (
     <div className="sensor-card">
       <div className="chart-title">Sensor node status</div>
       <div className="chart-sub" style={{ marginBottom: 14 }}>
-        {`${onlineCount}/${rows.length} online · based on real backend readings, not mock data`}
+        {`${onlineCount}/${rows.length} online \u00b7 based on real backend readings, not mock data`}
       </div>
 
       <div className="sensor-table">
@@ -127,23 +115,19 @@ export default function SensorTable({
           <span>Last seen</span>
           <span>Status</span>
         </div>
-        {rows.map((row) => (
-          <div key={row.node} className="sensor-row">
-            <span className="sensor-id">{row.node}</span>
-            <span>{row.type}</span>
-            <span className="sensor-mono">{row.detail}</span>
-            <span className="sensor-mono">{timeAgoLabel(row.lastSeen)}</span>
-            <span className={`sensor-status sensor-status-${row.status}`}>
+        {rows.map((r) => (
+          <div key={r.node} className="sensor-row">
+            <span className="sensor-id">{r.node}</span>
+            <span>{r.type}</span>
+            <span className="sensor-mono">{r.detail}</span>
+            <span className="sensor-mono">{timeAgoLabel(r.lastSeen)}</span>
+            <span className={`sensor-status sensor-status-${r.status}`}>
               <span className="sensor-status-dot" />
-              {row.status === "online" ? "Online" : "Offline"}
+              {r.status === "online" ? "Online" : "Offline"}
             </span>
           </div>
         ))}
       </div>
-
-      <p className="sensor-ble-note">
-        BLE anchor status comes directly from its latest signal window and becomes offline after the configured timeout.
-      </p>
     </div>
   );
 }

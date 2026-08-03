@@ -67,28 +67,6 @@ export type OccupancyStatus = {
   last_environment_update_at?: string | null;
 };
 
-export type BleZoneName = "left" | "right";
-
-export type BleAnchorSignal = {
-  anchor_id: "left-anchor" | "right-anchor";
-  zone: BleZoneName;
-  status: "active" | "offline";
-  average_rssi: number | null;
-  signal_score: number | null;
-  raw_signal_score?: number;
-  last_seen_at: string | null;
-  reported_at?: string | null;
-  calibration_offset_db: number;
-};
-
-export type BleSignalSummary = {
-  measurement: "relative_bluetooth_signal_intensity";
-  zones: Record<BleZoneName, BleAnchorSignal>;
-  stronger_zone: BleZoneName | "balanced" | null;
-  anchor_timeout_seconds: number;
-  ema_alpha: number;
-};
-
 export type Co2Reading = {
   id?: number;
   device_id: string;
