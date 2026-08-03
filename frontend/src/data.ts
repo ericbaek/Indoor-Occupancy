@@ -5,15 +5,6 @@ export type RadarTarget = {
   speed: number;
 };
 
-export type SensorNode = {
-  id: string;
-  room: string;
-  pirOut: boolean;
-  pirIn: boolean;
-  mmwaveTargets: number;
-  status: "online" | "offline";
-};
-
 export type RoomState = {
   room: string;
   occupancy: number;
@@ -30,6 +21,8 @@ export type Alert = {
 };
 
 export type OccupancyPoint = { t: string; count: number };
+
+export type Co2Point = { t: string; ppm: number };
 
 export type OccupancyRange = "5m" | "10m" | "30m" | "1H" | "2H";
 
@@ -68,7 +61,7 @@ export type OccupancyStatus = {
   // Environment / CO2 fields, surfaced on /api/occupancy/status alongside
   // the SCD41 sensor endpoints (/api/co2/latest, /api/co2/history/<id>).
   co2_ppm?: number | null;
-  co2_level?: "low" | "moderate" | "high" | string | null;
+  co2_level?: "normal" | "elevated" | "high" | string | null;
   temperature_c?: number | null;
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;
@@ -122,14 +115,6 @@ export const radarTargets: RadarTarget[] = [
   { id: 3, angle: 0, distance: 0, speed: 0 },
 ];
 
-export const sensorNodes: SensorNode[] = [
-  { id: "NODE-01", room: "K17-101", pirOut: true, pirIn: false, mmwaveTargets: 1, status: "online" },
-  { id: "NODE-02", room: "K17-101", pirOut: false, pirIn: false, mmwaveTargets: 1, status: "online" },
-  { id: "NODE-03", room: "K17-102", pirOut: true, pirIn: true, mmwaveTargets: 2, status: "online" },
-  { id: "NODE-04", room: "K17-103", pirOut: true, pirIn: false, mmwaveTargets: 0, status: "offline" },
-  { id: "NODE-05", room: "K17-104", pirOut: false, pirIn: false, mmwaveTargets: 0, status: "online" },
-];
-
 export const rooms: RoomState[] = [
   { room: "K17-101", occupancy: 24, capacity: 40, level: "safe" },
   { room: "K17-102", occupancy: 38, capacity: 40, level: "near-limit" },
@@ -140,4 +125,76 @@ export const rooms: RoomState[] = [
 export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
+];
+// ---------------------------------------------------------------------------
+// Reports — mock, pending backend historical-query support.
+//
+// Nothing under backend/app/ computes MAE/RMSE/fusion-gain or stores
+// exportable summaries yet (confirmed: no "evaluation"/"fusion" logic in
+// routes.py, occupancy.py, or database.py as of this build). This section
+// is shaped to match what the backend WOULD need to return so the frontend
+// can be swapped from mock to live with no component changes — see the
+// contract notes below each type. Remove this comment block once
+// /api/reports/* exists and fetch() replaces these constants in Reports.tsx.
+// ---------------------------------------------------------------------------
+
+/** One row of the fusion evaluation table (per sensing modality / model). */
+export type EvaluationMetric = {
+  /** Human label shown in the table, e.g. "PIR + mmWave fusion". */
+  model: string;
+  /** Mean Absolute Error in occupancy count vs. ground truth (manual count / video review). */
+  mae: number;
+  /** Root Mean Squared Error, same units as MAE — penalises large misses more. */
+  rmse: number;
+  /**
+   * Fusion gain: % reduction in MAE vs. the single-sensor baseline
+   * (PIR-only). Positive = fusion helped. Null for the baseline row itself.
+   */
+  fusionGainPercent: number | null;
+  /** Number of ground-truth samples the metric was computed over. */
+  sampleCount: number;
+};
+
+/** Top-line summary stats shown as StatCards at the top of Reports. */
+export type ReportSummary = {
+  rangeLabel: string;
+  totalHoursTracked: number;
+  avgOccupancy: number;
+  peakOccupancy: number;
+  peakAt: string;
+  /** % of expected sensor readings actually received in this range. */
+  dataCompletenessPercent: number;
+};
+
+/** One exportable historical report file. */
+export type ReportExport = {
+  id: string;
+  name: string;
+  room: string;
+  rangeLabel: string;
+  format: "csv" | "pdf";
+  generatedAt: string;
+  sizeKb: number;
+};
+
+export const reportSummary: ReportSummary = {
+  rangeLabel: "Last 7 days",
+  totalHoursTracked: 58.4,
+  avgOccupancy: 3.2,
+  peakOccupancy: 9,
+  peakAt: "Wed 12:40 PM",
+  dataCompletenessPercent: 91,
+};
+
+export const evaluationMetrics: EvaluationMetric[] = [
+  { model: "PIR only (baseline)", mae: 1.84, rmse: 2.31, fusionGainPercent: null, sampleCount: 420 },
+  { model: "mmWave only", mae: 1.12, rmse: 1.55, fusionGainPercent: 39.1, sampleCount: 420 },
+  { model: "PIR + mmWave fusion", mae: 0.67, rmse: 0.98, fusionGainPercent: 63.6, sampleCount: 420 },
+  { model: "PIR + mmWave + BLE zone", mae: 0.58, rmse: 0.89, fusionGainPercent: 68.5, sampleCount: 310 },
+];
+
+export const reportExports: ReportExport[] = [
+  { id: "r1", name: "Weekly occupancy summary", room: "K17-101 (doorway)", rangeLabel: "Jul 21 – Jul 27", format: "csv", generatedAt: "2026-07-28T09:02:00+10:00", sizeKb: 48 },
+  { id: "r2", name: "Fusion evaluation report", room: "K17-101 (doorway)", rangeLabel: "Jul 21 – Jul 27", format: "pdf", generatedAt: "2026-07-28T09:02:00+10:00", sizeKb: 612 },
+  { id: "r3", name: "CO2 trend export", room: "K17-101 (doorway)", rangeLabel: "Jul 14 – Jul 20", format: "csv", generatedAt: "2026-07-21T08:55:00+10:00", sizeKb: 31 },
 ];

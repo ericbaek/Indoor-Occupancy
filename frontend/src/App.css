@@ -37,6 +37,11 @@
   align-items: stretch;
 }
 
+.co2-row {
+  margin-top: 14px;
+  height: 300px;
+}
+
 .app-footer {
   text-align: center;
   font-size: 11.5px;

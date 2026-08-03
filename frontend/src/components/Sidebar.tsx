@@ -6,8 +6,8 @@ export type NavItem = (typeof NAV_ITEMS)[number];
 
 const NAV = [
   { label: "Dashboard", icon: LayoutGrid },
-  { label: "Rooms", icon: DoorOpen },
   { label: "Sensors", icon: Radar },
+  { label: "Rooms", icon: DoorOpen },
   { label: "Alerts", icon: BellRing },
   { label: "Reports", icon: FileBarChart },
   { label: "Settings", icon: Settings },

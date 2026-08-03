@@ -1,0 +1,143 @@
+.reports-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.reports-mock-banner {
+  background: var(--amber-dim);
+  color: #A0591E;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.reports-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.reports-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.reports-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.reports-section-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.reports-section-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.reports-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reports-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.reports-table tr:last-child td {
+  border-bottom: none;
+}
+
+.reports-table .num {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.reports-gain-positive {
+  color: #0E8477;
+  font-weight: 600;
+}
+
+.reports-gain-baseline {
+  color: var(--text-faint);
+}
+
+.reports-export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.reports-export-row:last-child {
+  border-bottom: none;
+}
+
+.reports-export-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.reports-export-meta {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.reports-export-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reports-format-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--neutral-dim);
+  color: var(--text-dim);
+}
+
+.reports-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--signal);
+  background: var(--signal-dim);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: not-allowed;
+  opacity: 0.6;
+}

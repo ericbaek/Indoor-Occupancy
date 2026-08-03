@@ -1,53 +1,47 @@
-import { useEffect, useState } from "react";
-import { Users, Radar, Clock3, FileBarChart, Settings, Wind } from "lucide-react";
+import { useState } from "react";
+import { Users, Radar, Clock3, Wind } from "lucide-react";
 import Sidebar, { type NavItem } from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import StatCard from "./components/StatCard";
 import DetectionStatusCard from "./components/DetectionStatusCard";
 import RadarScope from "./components/RadarScope";
 import OccupancyChart from "./components/OccupancyChart";
+import Co2Chart from "./components/Co2Chart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
 import BleTracker from "./components/BleTracker";
-import PlaceholderPage from "./components/PlaceholderPage";
-// Rooms, sensor nodes, and alerts have no backend support yet
-// (the real system is a single doorway, not multi-room) — these stay mock
-// until that data model exists on the backend.
-import { sensorNodes, rooms, alerts } from "./data";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
+// Rooms and alerts have no backend support yet (the real system is a
+// single doorway, not multi-room) — these stay mock until that data model
+// exists on the backend. Sensors is real (see SensorTable / data.radarDevices
+// / data.co2Ppm below).
+import { rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
+import { useHealthCheck } from "./hooks/useHealthCheck";
+import { usePreferences, formatTemperature } from "./hooks/usePreferences";
 import "./App.css";
 
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
   Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
-  Sensors: { title: "Sensors", sub: "Live node status: PIR and mmWave" },
+  Sensors: { title: "Sensors", sub: "Live node status \u2014 online/offline from real backend readings" },
   Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
   Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
-  Settings: { title: "Settings", sub: "Rooms, thresholds and account preferences" },
+  Settings: { title: "Settings", sub: "Theme, units, refresh rate and CO2 chart threshold" },
 };
 
-type Theme = "light" | "dark";
-
-const THEME_STORAGE_KEY = "indoor-occupancy-theme";
-
-function getInitialTheme(): Theme {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
-  } catch {
-    return "light";
-  }
-}
-
 // Maps the backend's co2_level classification to a StatCard tone + tag.
-// Falls back gracefully if the backend sends an unrecognised value (or none
-// yet, e.g. sensor hasn't reported).
+// Values match _co2_level() in backend/app/routes.py: "normal" (<800ppm),
+// "elevated" (800-1500ppm), "high" (>1500ppm). Falls back gracefully if
+// the backend sends something unrecognised (or none yet).
 function co2Presentation(level: string | null): { tone: "signal" | "amber" | "red" | "neutral"; tag: string } {
   switch (level) {
-    case "low":
+    case "normal":
       return { tone: "signal", tag: "Good" };
-    case "moderate":
-      return { tone: "amber", tag: "Moderate" };
+    case "elevated":
+      return { tone: "amber", tag: "Elevated" };
     case "high":
       return { tone: "red", tag: "High CO2" };
     default:
@@ -57,17 +51,9 @@ function co2Presentation(level: string | null): { tone: "signal" | "amber" | "re
 
 function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const data = useOccupancyData();
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // The selected theme still applies when storage is unavailable.
-    }
-  }, [theme]);
+  const { preferences, update: updatePreference } = usePreferences();
+  const data = useOccupancyData(preferences.pollMs);
+  const health = useHealthCheck();
 
   const activeTargets = data.radarTargets.length;
   const lastUpdatedLabel = data.lastUpdated.toLocaleTimeString([], {
@@ -84,8 +70,7 @@ function App() {
         <Topbar
           title={TOPBAR_COPY[page].title}
           sub={TOPBAR_COPY[page].sub}
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => current === "light" ? "dark" : "light")}
+          health={health}
         />
 
         {page === "Dashboard" && (
@@ -125,7 +110,7 @@ function App() {
                 label="CO2 level"
                 value={data.co2Ppm !== null ? String(data.co2Ppm) : "—"}
                 unit={data.co2Ppm !== null ? "ppm" : undefined}
-                sub={data.temperatureC !== null ? `${data.temperatureC}\u00b0C \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
+                sub={data.temperatureC !== null ? `${formatTemperature(data.temperatureC, preferences.units)} \u00b7 ${data.humidityPercent}% humidity` : "SCD41 sensor"}
                 tone={co2.tone}
                 tag={co2.tag}
               />
@@ -133,7 +118,7 @@ function App() {
                 icon={<Clock3 size={17} strokeWidth={2} />}
                 label="Last updated"
                 value={lastUpdatedLabel}
-                sub="Polling every 1s"
+                sub={`Polling every ${preferences.pollMs < 1000 ? `${preferences.pollMs}ms` : `${preferences.pollMs / 1000}s`}`}
                 tone="blue"
                 tag={data.isLive ? "Live" : "Stale"}
               />
@@ -142,6 +127,10 @@ function App() {
             <section className="mid-grid">
               <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
               <RadarScope targets={data.radarTargets} />
+            </section>
+
+            <section className="co2-row">
+              <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} elevatedPpm={preferences.co2AlertThreshold} />
             </section>
 
             <BleTracker 
@@ -164,7 +153,15 @@ function App() {
 
         {page === "Sensors" && (
           <section>
-            <SensorTable nodes={sensorNodes} />
+            <SensorTable
+              radarDevices={data.radarDevices}
+              co2Ppm={data.co2Ppm}
+              co2DeviceId={data.co2DeviceId}
+              lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
+              lastOccupancyEventAt={data.lastOccupancyEventAt}
+              lastEventType={data.events[0]?.event ?? null}
+              bleTags={data.bleTags}
+            />
           </section>
         )}
 
@@ -174,20 +171,10 @@ function App() {
           </section>
         )}
 
-        {page === "Reports" && (
-          <PlaceholderPage
-            icon={FileBarChart}
-            title="Reports coming soon"
-            blurb="Exportable occupancy summaries and evaluation-metric reports (MAE, RMSE, fusion gain) will live here once historical backend queries are in."
-          />
-        )}
+        {page === "Reports" && <Reports />}
 
         {page === "Settings" && (
-          <PlaceholderPage
-            icon={Settings}
-            title="Settings coming soon"
-            blurb="Configure per-room occupancy limits, PIR/mmWave thresholds, and privacy consent mode."
-          />
+          <Settings preferences={preferences} onUpdate={updatePreference} />
         )}
       </main>
     </div>
