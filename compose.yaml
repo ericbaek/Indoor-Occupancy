@@ -1,0 +1,39 @@
+name: indoor-occupancy
+
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      FLASK_DEBUG: "false"
+      DATABASE_PATH: /app/instance/occupancy.db
+      CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      SECRET_KEY: ${SECRET_KEY:-docker-development-key}
+    ports:
+      - "5000:5000"
+    volumes:
+      - occupancy-data:/app/instance
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  occupancy-data:

@@ -13,9 +13,10 @@ import type {
   Co2Point,
 } from "../data";
 
-// Point this at your Flask backend. Override with a Vite env var
-// (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
+// Docker serves the dashboard and proxies /api to Flask, so a relative URL
+// works from localhost and from another computer on the room network. Local
+// Vite development uses the matching proxy in vite.config.ts.
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 const DEFAULT_POLL_MS = 1000;
 

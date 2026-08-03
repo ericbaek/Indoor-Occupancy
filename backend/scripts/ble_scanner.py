@@ -1,14 +1,19 @@
-"""Windows BLE anchor scanner for up to five participating devices.
+"""Windows/macOS BLE anchor scanner for up to five participating devices.
 
 Supported participating devices:
 1. Windows PCs running ``ble_advertiser_windows.py`` (stable manufacturer ID).
-2. Existing Arduino tags advertising a ``ROOM-TAG-*`` local name.
-3. Explicitly allowlisted BLE addresses or names via ``BLE_TARGETS``.
+2. Macs running ``ble_advertiser_macos.swift`` (stable ``ROOM-TAG-*`` name).
+3. Existing Arduino tags advertising a ``ROOM-TAG-*`` local name.
+4. Explicitly allowlisted BLE addresses or names via ``BLE_TARGETS``.
 
 Use ``BLE_DISCOVERY=1`` to list nearby advertisers without posting readings.
 ``BLE_SCAN_ALL=1`` is available for controlled rooms, but an allowlist is more
 stable because unrelated watches, earbuds, and rotating private addresses may
 otherwise be counted.
+
+On macOS, CoreBluetooth exposes a per-Mac UUID instead of a public Bluetooth
+address. Project advertisers therefore use a stable manufacturer payload or
+``ROOM-TAG-*`` name so both anchors report the same device identity.
 """
 
 from __future__ import annotations
@@ -52,6 +57,9 @@ TARGET_SELECTORS = {
 
 COMP6733_COMPANY_ID = 0xFFFE
 COMP6733_PAYLOAD_PREFIX = b"C6733:"
+# First eight bytes of the 128-bit UUID used by the macOS advertiser. The
+# remaining eight bytes contain the ASCII device token, padded with zeroes.
+COMP6733_MAC_SERVICE_PREFIX = bytes.fromhex("c67330334d414300")
 DEVICE_TOKEN_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,15}$")
 MIN_SEND_INTERVAL = 0.5
 DISCOVERY_LOG_INTERVAL = 5.0
@@ -78,6 +86,25 @@ def parse_comp6733_device_id(manufacturer_data: dict[int, bytes]) -> str | None:
     return f"BT-PC-{token}"
 
 
+def parse_comp6733_mac_device_id(service_uuids: list[str] | None) -> str | None:
+    """Extract the stable Mac ID encoded in a COMP6733 service UUID."""
+    for service_uuid in service_uuids or []:
+        compact = str(service_uuid).replace("-", "")
+        try:
+            raw_uuid = bytes.fromhex(compact)
+        except ValueError:
+            continue
+        if len(raw_uuid) != 16 or not raw_uuid.startswith(COMP6733_MAC_SERVICE_PREFIX):
+            continue
+        try:
+            token = raw_uuid[8:].rstrip(b"\x00").decode("ascii").upper()
+        except UnicodeDecodeError:
+            continue
+        if DEVICE_TOKEN_PATTERN.fullmatch(token):
+            return f"ROOM-TAG-{token}"
+    return None
+
+
 def _address_device_id(address: str) -> str:
     # A short hash keeps device addresses out of the UI while preserving a
     # common identity when both anchors observe the same address.
@@ -99,6 +126,15 @@ def identify_device(
         return {
             "device_id": project_device_id,
             "device_name": name or f"Bluetooth PC {token}",
+            "device_address": address,
+        }
+
+    mac_device_id = parse_comp6733_mac_device_id(advertisement_data.service_uuids)
+    if mac_device_id:
+        token = mac_device_id.removeprefix("ROOM-TAG-")
+        return {
+            "device_id": mac_device_id,
+            "device_name": name or f"Bluetooth Mac {token}",
             "device_address": address,
         }
 
@@ -168,11 +204,12 @@ def detection_callback(
         if now - last_discovery_logs.get(discovery_key, 0.0) >= DISCOVERY_LOG_INTERVAL:
             last_discovery_logs[discovery_key] = now
             log.info(
-                "DISCOVERED name=%r address=%s RSSI=%s manufacturer_ids=%s",
+                "DISCOVERED name=%r address=%s RSSI=%s manufacturer_ids=%s service_uuids=%s",
                 name,
                 address,
                 advertisement_data.rssi,
                 sorted(advertisement_data.manufacturer_data),
+                advertisement_data.service_uuids,
             )
         return
 

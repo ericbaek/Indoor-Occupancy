@@ -11,10 +11,11 @@ def _device(address="AA:BB:CC:DD:EE:01", name=None):
     return SimpleNamespace(address=address, name=name)
 
 
-def _advertisement(*, name=None, manufacturer_data=None, rssi=-55):
+def _advertisement(*, name=None, manufacturer_data=None, service_uuids=None, rssi=-55):
     return SimpleNamespace(
         local_name=name,
         manufacturer_data=manufacturer_data or {},
+        service_uuids=service_uuids or [],
         rssi=rssi,
         tx_power=None,
     )
@@ -40,6 +41,25 @@ def test_project_pc_beacon_is_accepted_without_allowlist(monkeypatch):
     )
     assert identity["device_id"] == "BT-PC-RIGHT-1"
     assert identity["device_name"] == "Bluetooth PC RIGHT-1"
+
+
+def test_macos_service_uuid_is_accepted_without_local_name(monkeypatch):
+    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", set())
+    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
+    identity = ble_scanner.identify_device(
+        _device(),
+        _advertisement(service_uuids=["c6733033-4d41-4300-4d41-433100000000"]),
+    )
+    assert identity["device_id"] == "ROOM-TAG-MAC1"
+    assert identity["device_name"] == "Bluetooth Mac MAC1"
+
+
+@pytest.mark.parametrize(
+    "service_uuids",
+    [[], ["not-a-uuid"], ["c6733033-4d41-4300-0000-000000000000"]],
+)
+def test_invalid_macos_service_uuid_is_ignored(service_uuids):
+    assert ble_scanner.parse_comp6733_mac_device_id(service_uuids) is None
 
 
 def test_existing_room_tag_is_still_accepted(monkeypatch):
