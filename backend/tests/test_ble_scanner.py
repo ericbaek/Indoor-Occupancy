@@ -1,89 +1,95 @@
-"""Pure tests for BLE advertiser identity and scanner filtering."""
+"""Pure tests for windowed Bluetooth RSSI aggregation."""
 
 from types import SimpleNamespace
 
 import pytest
 
-from scripts import ble_advertiser_windows, ble_scanner
+from scripts import ble_scanner
 
 
-def _device(address="AA:BB:CC:DD:EE:01", name=None):
-    return SimpleNamespace(address=address, name=name)
+def _device(address="AA:BB:CC:DD:EE:01"):
+    return SimpleNamespace(address=address)
 
 
-def _advertisement(*, name=None, manufacturer_data=None, service_uuids=None, rssi=-55):
-    return SimpleNamespace(
-        local_name=name,
-        manufacturer_data=manufacturer_data or {},
-        service_uuids=service_uuids or [],
-        rssi=rssi,
-        tx_power=None,
-    )
-
-
-def test_windows_advertiser_payload_round_trip():
-    payload = ble_advertiser_windows.build_payload("PC-LEFT")
-    assert ble_scanner.parse_comp6733_device_id({0xFFFE: payload}) == "BT-PC-PC-LEFT"
-
-
-@pytest.mark.parametrize("invalid", ["", "space here", "x" * 17, "slash/name"])
-def test_windows_advertiser_rejects_invalid_ids(invalid):
-    with pytest.raises(ValueError):
-        ble_advertiser_windows.build_payload(invalid)
-
-
-def test_project_pc_beacon_is_accepted_without_allowlist(monkeypatch):
-    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", set())
-    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
-    identity = ble_scanner.identify_device(
-        _device(),
-        _advertisement(manufacturer_data={0xFFFE: b"C6733:RIGHT-1"}),
-    )
-    assert identity["device_id"] == "BT-PC-RIGHT-1"
-    assert identity["device_name"] == "Bluetooth PC RIGHT-1"
-
-
-def test_macos_service_uuid_is_accepted_without_local_name(monkeypatch):
-    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", set())
-    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
-    identity = ble_scanner.identify_device(
-        _device(),
-        _advertisement(service_uuids=["c6733033-4d41-4300-4d41-433100000000"]),
-    )
-    assert identity["device_id"] == "ROOM-TAG-MAC1"
-    assert identity["device_name"] == "Bluetooth Mac MAC1"
+def _advertisement(rssi=-55):
+    return SimpleNamespace(rssi=rssi)
 
 
 @pytest.mark.parametrize(
-    "service_uuids",
-    [[], ["not-a-uuid"], ["c6733033-4d41-4300-0000-000000000000"]],
+    ("rssi", "expected"),
+    [(-120, 0.0), (-100, 0.0), (-70, 50.0), (-40, 100.0), (-20, 100.0)],
 )
-def test_invalid_macos_service_uuid_is_ignored(service_uuids):
-    assert ble_scanner.parse_comp6733_mac_device_id(service_uuids) is None
+def test_rssi_to_score_is_clamped(rssi, expected):
+    assert ble_scanner.rssi_to_score(rssi) == expected
 
 
-def test_existing_room_tag_is_still_accepted(monkeypatch):
-    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", set())
-    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
-    identity = ble_scanner.identify_device(_device(), _advertisement(name="ROOM-TAG-01"))
-    assert identity["device_id"] == "ROOM-TAG-01"
+def test_collect_observation_groups_same_address():
+    observations = {}
+    ble_scanner.collect_observation(_device(), _advertisement(-50), observations)
+    ble_scanner.collect_observation(_device(), _advertisement(-60), observations)
+    assert observations == {"AA:BB:CC:DD:EE:01": [-50.0, -60.0]}
 
 
-def test_generic_device_requires_allowlist(monkeypatch):
-    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", set())
-    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
-    assert ble_scanner.identify_device(_device(name="Nick Laptop"), _advertisement()) is None
+@pytest.mark.parametrize("rssi", [None, True, -121, 1])
+def test_collect_observation_ignores_invalid_rssi(rssi):
+    observations = {}
+    ble_scanner.collect_observation(_device(), _advertisement(rssi), observations)
+    assert observations == {}
 
 
-def test_generic_device_can_be_selected_by_address(monkeypatch):
-    monkeypatch.setattr(ble_scanner, "TARGET_SELECTORS", {"aa:bb:cc:dd:ee:01"})
-    monkeypatch.setattr(ble_scanner, "SCAN_ALL", False)
-    identity = ble_scanner.identify_device(_device(name="Nick Laptop"), _advertisement())
-    assert identity["device_id"].startswith("BT-ADDR-")
-    assert identity["device_name"] == "Nick Laptop"
+def test_window_uses_address_medians_then_strongest_three_median():
+    summary = ble_scanner.summarise_window({
+        "A": [-40, -50, -60],  # representative -50
+        "B": [-55, -57, -53],  # representative -55
+        "C": [-70],
+        "D": [-90],
+        "E": [-95],
+    })
+    assert summary["average_rssi"] == -55.0
+    assert summary["signal_score"] == 75.0
+    assert summary["observed_address_count"] == 5
+    assert summary["strongest_signal_count"] == 3
 
 
-def test_same_address_produces_same_anonymous_id():
-    assert ble_scanner._address_device_id("aa:bb:cc:dd:ee:01") == ble_scanner._address_device_id(
-        "AA:BB:CC:DD:EE:01"
-    )
+def test_window_uses_all_signals_when_fewer_than_three():
+    summary = ble_scanner.summarise_window({"A": [-48], "B": [-78]})
+    assert summary["average_rssi"] == -63.0
+    assert summary["signal_score"] == 61.67
+    assert summary["strongest_signal_count"] == 2
+
+
+def test_many_weak_addresses_do_not_change_top_three_result():
+    baseline = ble_scanner.summarise_window({"A": [-48], "B": [-55], "C": [-63]})
+    with_background = ble_scanner.summarise_window({
+        "A": [-48],
+        "B": [-55],
+        "C": [-63],
+        **{f"weak-{index}": [-100] for index in range(50)},
+    })
+    assert with_background["average_rssi"] == baseline["average_rssi"] == -55.0
+    assert with_background["signal_score"] == baseline["signal_score"] == 75.0
+
+
+def test_empty_window_is_zero_signal():
+    summary = ble_scanner.summarise_window({})
+    assert summary == {
+        "average_rssi": None,
+        "signal_score": 0.0,
+        "observed_address_count": 0,
+        "strongest_signal_count": 0,
+    }
+
+
+def test_window_rejects_zero_strongest_count():
+    with pytest.raises(ValueError):
+        ble_scanner.summarise_window({"A": [-50]}, strongest_count=0)
+
+
+def test_payload_contains_no_device_count():
+    summary = ble_scanner.summarise_window({"A": [-50]})
+    payload = ble_scanner.build_payload("left-anchor", summary)
+    assert payload["anchor_id"] == "left-anchor"
+    assert payload["average_rssi"] == -50.0
+    assert payload["signal_score"] == 83.33
+    assert "observed_address_count" not in payload
+    assert "device_count" not in payload

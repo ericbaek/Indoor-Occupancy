@@ -26,7 +26,6 @@ from .database import (
     upsert_radar_latest,
 )
 from .occupancy import compute_new_count, get_occupancy_level
-from . import ble_service
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -722,13 +721,6 @@ def get_occupancy_status():
         if _mismatch_started_at is None:
             _mismatch_started_at = now_str
 
-    # BLE Tag tracking integration (two RSSI zones; no distance/coordinates).
-    bluetooth_summary = ble_service.get_tracking_summary()
-    bluetooth_device_count = bluetooth_summary["total_active_devices"]
-    bluetooth_zones = {
-        zone: data["count"] for zone, data in bluetooth_summary["zones"].items()
-    }
-
     return jsonify({
         "occupancy": occupancy,
         "status": status,
@@ -742,7 +734,4 @@ def get_occupancy_status():
         "last_radar_update_at": last_radar_update_at,
         "last_environment_update_at": last_environment_update_at,
         "mismatch_started_at": _mismatch_started_at,
-        "bluetooth_device_count": bluetooth_device_count,
-        "bluetooth_tag_count": bluetooth_device_count,
-        "bluetooth_zones": bluetooth_zones,
     }), 200

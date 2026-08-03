@@ -1,255 +1,213 @@
-"""Tests for maximum-five Bluetooth device counting and two-zone tracking."""
+"""Tests for the two-zone Bluetooth signal-strength heatmap."""
 
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app import ble_config
-import app.ble_service as ble_service
-from app.database import get_db
+from app import ble_config, ble_service
 
 
-def _valid_reading(**overrides):
+@pytest.fixture(autouse=True)
+def clear_ble_anchor_state():
+    ble_service.reset_anchor_state()
+    yield
+    ble_service.reset_anchor_state()
+
+
+def _payload(**overrides):
     payload = {
-        "message_type": "bluetooth_rssi",
-        "scanner_id": "anchor-left",
-        "device_id": "BT-PC-01",
-        "device_name": "Test PC 01",
-        "device_address": "AA:BB:CC:DD:EE:01",
-        "rssi": -61,
-        "tx_power": None,
+        "anchor_id": "left-anchor",
+        "average_rssi": -55.0,
+        "signal_score": 75.0,
+        "timestamp": "2026-08-04T00:00:00+00:00",
     }
     payload.update(overrides)
     return payload
 
 
 def _post(client, **overrides):
-    return client.post("/api/bluetooth/readings", json=_valid_reading(**overrides))
+    return client.post("/api/bluetooth/signals", json=_payload(**overrides))
 
 
-def _post_pair(client, device_id: str, left_rssi: int, right_rssi: int):
-    name = f"Computer {device_id}"
-    assert _post(
-        client,
-        device_id=device_id,
-        device_name=name,
-        scanner_id="anchor-left",
-        rssi=left_rssi,
-    ).status_code == 201
-    assert _post(
-        client,
-        device_id=device_id,
-        device_name=name,
-        scanner_id="anchor-right",
-        rssi=right_rssi,
-    ).status_code == 201
-
-
-@pytest.fixture(autouse=True)
-def reset_bluetooth_state(app):
-    with app.app_context():
-        db = get_db()
-        db.execute("DELETE FROM bluetooth_readings")
-        db.commit()
-    ble_service._device_state.clear()
-    ble_service._device_metadata.clear()
-    yield
-    ble_service._device_state.clear()
-    ble_service._device_metadata.clear()
-
-
-def test_config_supports_two_anchors_and_maximum_five_devices():
-    assert ble_config.KNOWN_SCANNER_IDS == {"anchor-left", "anchor-right"}
-    assert ble_config.ZONE_NAMES == ("left", "right")
-    assert ble_config.BLE_SETTINGS["max_tracked_devices"] == 5
-    assert ble_config.BLE_SETTINGS["zone_switch_threshold_db"] == 5.0
-
-
-def test_post_accepts_real_bluetooth_device_identity(client):
-    response = _post(client, device_id="BT-PC-LAPTOP-1", rssi=-55)
-    assert response.status_code == 201
-    body = response.get_json()
-    assert body["success"] is True
-    assert body["data"]["device_id"] == "BT-PC-LAPTOP-1"
-    assert body["data"]["device_name"] == "Test PC 01"
-    datetime.fromisoformat(body["data"]["received_at"])
-
-
-def test_legacy_room_tag_payload_remains_accepted(client):
-    payload = _valid_reading()
-    payload.pop("device_id")
-    payload["tag_id"] = "ROOM-TAG-01"
-    response = client.post("/api/bluetooth/readings", json=payload)
-    assert response.status_code == 201
-    assert response.get_json()["data"]["device_id"] == "ROOM-TAG-01"
-
-
-@pytest.mark.parametrize("scanner_id", ["anchor-left", "anchor-right"])
-def test_both_anchor_ids_are_accepted(client, scanner_id):
-    assert _post(client, scanner_id=scanner_id).status_code == 201
-
-
-def test_unknown_third_anchor_is_rejected(client):
-    response = _post(client, scanner_id="anchor-right-2")
-    assert response.status_code == 400
-    assert "Unknown scanner_id" in response.get_json()["error"]
+def test_anchor_configuration_is_left_and_right():
+    assert ble_config.ANCHOR_ZONES == {
+        "left-anchor": "left",
+        "right-anchor": "right",
+    }
 
 
 @pytest.mark.parametrize(
-    ("overrides", "error"),
-    [
-        ({"message_type": "wrong"}, "message_type"),
-        ({"device_id": "contains spaces"}, "device_id"),
-        ({"device_id": "x" * 65}, "device_id"),
-        ({"rssi": -121}, "between -120 and 0"),
-        ({"rssi": -55.5}, "integer"),
-        ({"device_name": ""}, "device_name"),
-    ],
+    ("rssi", "expected"),
+    [(-120, 0.0), (-100, 0.0), (-70, 50.0), (-40, 100.0), (-20, 100.0)],
 )
-def test_reading_validation(client, overrides, error):
-    response = _post(client, **overrides)
+def test_rssi_to_score_is_clamped(rssi, expected):
+    assert ble_service.rssi_to_score(rssi) == expected
+
+
+def test_post_anchor_signal(client):
+    response = _post(client)
+    assert response.status_code == 201
+    data = response.get_json()["data"]
+    assert data["anchor_id"] == "left-anchor"
+    assert data["zone"] == "left"
+    assert data["status"] == "active"
+    assert data["average_rssi"] == -55.0
+    assert data["signal_score"] == 75.0
+
+
+def test_readings_url_is_signal_payload_alias(client):
+    response = client.post("/api/bluetooth/readings", json=_payload())
+    assert response.status_code == 201
+    assert response.get_json()["data"]["anchor_id"] == "left-anchor"
+
+
+def test_post_requires_json(client):
+    response = client.post("/api/bluetooth/signals", data="not json")
     assert response.status_code == 400
-    assert error in response.get_json()["error"]
+    assert response.get_json()["error"] == "Request body must be JSON"
 
 
-def test_rolling_average_is_separate_per_anchor():
-    readings = [
-        {"scanner_id": "anchor-left", "rssi": -50},
-        {"scanner_id": "anchor-left", "rssi": -60},
-        {"scanner_id": "anchor-right", "rssi": -80},
-    ]
-    assert ble_service.smooth_rssi(readings) == {
-        "anchor-left": -55.0,
-        "anchor-right": -80.0,
-    }
+def test_post_rejects_empty_json(client):
+    response = client.post(
+        "/api/bluetooth/signals",
+        data="",
+        content_type="application/json",
+    )
+    assert response.status_code == 400
 
 
-def test_initial_zone_uses_stronger_anchor():
-    assert ble_service.assign_zone(
-        "BT-PC-01", {"anchor-left": -55, "anchor-right": -72}
-    ) == "left"
+@pytest.mark.parametrize("anchor_id", [None, "", "anchor-left", "third-anchor"])
+def test_post_rejects_unknown_anchor(client, anchor_id):
+    assert _post(client, anchor_id=anchor_id).status_code == 400
 
 
-def test_zone_switch_requires_five_db_advantage():
-    device_id = "BT-PC-01"
-    ble_service.assign_zone(device_id, {"anchor-left": -55, "anchor-right": -70})
-    assert ble_service.assign_zone(
-        device_id, {"anchor-left": -64, "anchor-right": -60}
-    ) == "left"
-    assert ble_service.assign_zone(
-        device_id, {"anchor-left": -65, "anchor-right": -60}
-    ) == "right"
+@pytest.mark.parametrize("average_rssi", ["-55", True, -121, 1])
+def test_post_rejects_invalid_average_rssi(client, average_rssi):
+    assert _post(client, average_rssi=average_rssi).status_code == 400
+
+
+def test_post_requires_average_rssi(client):
+    payload = _payload()
+    del payload["average_rssi"]
+    assert client.post("/api/bluetooth/signals", json=payload).status_code == 400
+
+
+@pytest.mark.parametrize("signal_score", [None, "75", True, -1, 101])
+def test_post_rejects_invalid_signal_score(client, signal_score):
+    assert _post(client, signal_score=signal_score).status_code == 400
+
+
+def test_null_rssi_requires_zero_score(client):
+    response = _post(client, average_rssi=None, signal_score=50)
+    assert response.status_code == 400
+
+
+def test_no_advertisements_is_active_zero_signal(client):
+    response = _post(client, average_rssi=None, signal_score=0)
+    data = response.get_json()["data"]
+    assert data["status"] == "active"
+    assert data["average_rssi"] is None
+    assert data["signal_score"] == 0.0
+
+
+@pytest.mark.parametrize("timestamp", [12, "", "not-a-timestamp"])
+def test_post_rejects_invalid_timestamp(client, timestamp):
+    assert _post(client, timestamp=timestamp).status_code == 400
+
+
+def test_signal_summary_starts_offline(client):
+    body = client.get("/api/bluetooth/signal-strength").get_json()
+    assert body["measurement"] == "relative_bluetooth_signal_intensity"
+    assert body["zones"]["left"]["status"] == "offline"
+    assert body["zones"]["right"]["status"] == "offline"
+    assert body["stronger_zone"] is None
+    assert "total_active_devices" not in body
+
+
+def test_stronger_zone_uses_signal_score_not_device_count(client):
+    _post(client, anchor_id="left-anchor", average_rssi=-50, signal_score=1)
+    _post(client, anchor_id="right-anchor", average_rssi=-70, signal_score=99)
+    body = client.get("/api/bluetooth/signal-strength").get_json()
+    assert body["zones"]["left"]["signal_score"] == 83.33
+    assert body["zones"]["right"]["signal_score"] == 50.0
+    assert body["stronger_zone"] == "left"
+
+
+def test_near_equal_scores_are_balanced(client):
+    _post(client, anchor_id="left-anchor", average_rssi=-60, signal_score=66.67)
+    _post(client, anchor_id="right-anchor", average_rssi=-61, signal_score=65.0)
+    body = client.get("/api/bluetooth/signal-strength").get_json()
+    assert body["stronger_zone"] == "balanced"
+
+
+def test_one_active_anchor_does_not_claim_comparison(client):
+    _post(client, anchor_id="left-anchor")
+    body = client.get("/api/bluetooth/signal-strength").get_json()
+    assert body["zones"]["left"]["status"] == "active"
+    assert body["zones"]["right"]["status"] == "offline"
+    assert body["stronger_zone"] is None
+
+
+def test_ema_smooths_score(client):
+    _post(client, average_rssi=-100, signal_score=0)
+    second = _post(client, average_rssi=-40, signal_score=100).get_json()["data"]
+    assert second["raw_signal_score"] == 100.0
+    assert second["signal_score"] == 30.0
+
+
+def test_anchor_calibration_offset_is_applied(client, monkeypatch):
+    monkeypatch.setitem(ble_config.ANCHOR_RSSI_OFFSET, "right-anchor", 4.0)
+    data = _post(
+        client,
+        anchor_id="right-anchor",
+        average_rssi=-70,
+        signal_score=50,
+    ).get_json()["data"]
+    assert data["average_rssi"] == -66.0
+    assert data["signal_score"] == 56.67
+    assert data["calibration_offset_db"] == 4.0
+
+
+def test_anchor_becomes_offline_after_timeout(client, monkeypatch):
+    base = datetime(2026, 8, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(ble_service, "_utc_now", lambda: base)
+    _post(client)
+    monkeypatch.setattr(
+        ble_service,
+        "_utc_now",
+        lambda: base + timedelta(seconds=16),
+    )
+    zone = client.get("/api/bluetooth/signal-strength").get_json()["zones"]["left"]
+    assert zone["status"] == "offline"
+    assert zone["average_rssi"] is None
+    assert zone["signal_score"] is None
+    assert zone["last_seen_at"] == base.isoformat()
+
+
+def test_zones_alias_returns_same_shape(client):
+    _post(client)
+    body = client.get("/api/bluetooth/zones").get_json()
+    assert body["zones"]["left"]["anchor_id"] == "left-anchor"
 
 
 @pytest.mark.parametrize(
-    ("scanner_rssi", "expected"),
+    "path",
     [
-        ({"anchor-left": -20}, "left"),
-        ({"anchor-right": -20}, "right"),
-        ({"anchor-left": -50}, "unknown"),
+        "/api/bluetooth/count",
+        "/api/bluetooth/devices",
+        "/api/bluetooth/tags",
+        "/api/bluetooth/state/BT-01",
+        "/api/bluetooth/position/BT-01",
     ],
 )
-def test_strong_self_heartbeat_classifies_anchor_pc(scanner_rssi, expected):
-    assert ble_service.assign_zone("BT-PC-SELF", scanner_rssi) == expected
+def test_removed_count_and_position_endpoints_return_gone(client, path):
+    response = client.get(path)
+    assert response.status_code == 410
+    assert response.get_json()["use"] == "/api/bluetooth/signal-strength"
 
 
-def test_three_actual_computer_identities_are_counted_and_split(client):
-    _post_pair(client, "BT-PC-LEFT", left_rssi=-20, right_rssi=-70)
-    _post_pair(client, "BT-PC-RIGHT-1", left_rssi=-72, right_rssi=-20)
-    _post_pair(client, "BT-PC-RIGHT-2", left_rssi=-74, right_rssi=-48)
-
-    body = client.get("/api/bluetooth/devices").get_json()
-    assert body["total_active_devices"] == 3
-    assert body["zones"] == {"left": {"count": 1}, "right": {"count": 2}}
-    assert {device["device_id"] for device in body["devices"]} == {
-        "BT-PC-LEFT",
-        "BT-PC-RIGHT-1",
-        "BT-PC-RIGHT-2",
-    }
-
-
-def test_duplicate_observations_never_double_count(client):
-    for _ in range(4):
-        _post_pair(client, "BT-PC-01", left_rssi=-48, right_rssi=-70)
-    body = client.get("/api/bluetooth/devices").get_json()
-    assert body["total_active_devices"] == 1
-    assert body["zones"]["left"]["count"] == 1
-
-
-def test_only_first_five_active_devices_are_counted(client):
-    for number in range(1, 7):
-        _post_pair(
-            client,
-            f"BT-PC-{number}",
-            left_rssi=-50 if number <= 3 else -75,
-            right_rssi=-72 if number <= 3 else -49,
-        )
-
-    body = client.get("/api/bluetooth/devices").get_json()
-    assert body["total_active_devices"] == 5
-    assert body["max_devices"] == 5
-    assert body["ignored_active_devices"] == 1
-    assert len(body["devices"]) == 5
-
-
-def test_count_api_returns_device_count_and_heatmap_counts(client):
-    _post_pair(client, "BT-PC-LEFT", left_rssi=-48, right_rssi=-72)
-    _post_pair(client, "BT-PC-RIGHT-1", left_rssi=-72, right_rssi=-48)
-    _post_pair(client, "BT-PC-RIGHT-2", left_rssi=-74, right_rssi=-49)
-
-    body = client.get("/api/bluetooth/count").get_json()
-    assert body == {
-        "total_active_devices": 3,
-        "total_active_tags": 3,
-        "max_devices": 5,
-        "zones": {"left": {"count": 1}, "right": {"count": 2}},
-        "unassigned_count": 0,
-        "ignored_active_devices": 0,
-        "inactive_timeout_seconds": 5.0,
-    }
-
-
-def test_normal_single_anchor_reading_is_unassigned(client):
-    _post(client, device_id="BT-PHONE-01", scanner_id="anchor-left", rssi=-55)
-    body = client.get("/api/bluetooth/count").get_json()
-    assert body["total_active_devices"] == 1
-    assert body["unassigned_count"] == 1
-
-
-def test_inactive_device_is_removed_after_timeout(app, client):
-    old_time = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
-    with app.app_context():
-        db = get_db()
-        db.execute(
-            """
-            INSERT INTO bluetooth_readings
-                (scanner_id, tag_id, rssi, tx_power, received_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            ("anchor-left", "BT-PC-OLD", -50, None, old_time),
-        )
-        db.commit()
-
-    assert client.get("/api/bluetooth/devices").get_json()["total_active_devices"] == 0
-
-
-def test_device_state_has_identity_rssi_and_no_coordinates(client):
-    _post_pair(client, "BT-PC-01", left_rssi=-52, right_rssi=-70)
-    body = client.get("/api/bluetooth/state/BT-PC-01").get_json()
-    assert body["device_id"] == "BT-PC-01"
-    assert body["device_name"] == "Computer BT-PC-01"
-    assert body["current_zone"] == "left"
-    assert body["scanner_rssi"] == {"anchor-left": -52.0, "anchor-right": -70.0}
-    assert "position" not in body
-    assert "estimated_distances" not in body
-
-
-def test_occupancy_status_exposes_device_and_legacy_counts(client):
-    _post_pair(client, "BT-PC-LEFT", left_rssi=-50, right_rssi=-75)
-    _post_pair(client, "BT-PC-RIGHT", left_rssi=-80, right_rssi=-51)
-
+def test_occupancy_status_no_longer_exposes_bluetooth_counts(client):
     body = client.get("/api/occupancy/status").get_json()
-    assert body["bluetooth_device_count"] == 2
-    assert body["bluetooth_tag_count"] == 2
-    assert body["bluetooth_zones"] == {"left": 1, "right": 1}
-    assert "bluetooth_positions" not in body
+    assert "bluetooth_device_count" not in body
+    assert "bluetooth_tag_count" not in body
+    assert "bluetooth_zones" not in body

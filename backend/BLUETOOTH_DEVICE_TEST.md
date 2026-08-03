@@ -1,174 +1,60 @@
-# Real Bluetooth Computer/Device Test (3 to 5 devices)
+# Two-Windows-computer Bluetooth signal test
 
-This mode counts actual participating Bluetooth advertisers, not mock rows.
-Two fixed scanners compare rolling RSSI and place each unique device in the
-Left or Right heatmap. The backend displays at most five active devices.
+This test verifies relative Left/Right BLE signal intensity. It does **not**
+verify a device count, person count, distance, or coordinate.
 
-## Three-computer layout
+## Layout
 
-| Computer | Physical side | Processes |
+| Computer | Position | Anchor ID |
 |---|---|---|
-| Main PC | Left | Backend, frontend, LEFT advertiser, `anchor-left` scanner |
-| Laptop 2 | Right | RIGHT-1 advertiser, `anchor-right` scanner |
-| Laptop 3 | Right | RIGHT-2 advertiser, browser/Postman |
+| Main Windows PC | Left side | `left-anchor` |
+| Second Windows laptop | Right side | `right-anchor` |
 
-All computers must use the same Wi-Fi network, have Bluetooth enabled, and use
-the `feature/ble-tracking` branch. Replace `<MAIN_PC_IP>` below with the Main
-PC's Wi-Fi IPv4 address from `ipconfig`.
+Start Docker on the Main PC, then start `ble_scanner.py` natively on both
+computers using the commands in `../DOCKER_BLUETOOTH.md`.
 
-Run this once in `backend` on each computer:
+## Verify scanner output
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-## 1. Main PC (Left)
-
-Backend terminal:
-
-```powershell
-cd backend
-$env:FLASK_HOST="0.0.0.0"
-.\.venv\Scripts\python.exe .\run.py
-```
-
-Advertiser terminal (start this before the scanner):
-
-```powershell
-cd backend
-.\.venv\Scripts\python.exe .\scripts\ble_advertiser_windows.py `
-  --device-id LEFT `
-  --co-located-anchor anchor-left `
-  --backend-url http://127.0.0.1:5000/api/bluetooth/readings
-```
-
-Continue only after it prints `Bluetooth publisher: started`.
-
-Left scanner terminal:
-
-```powershell
-cd backend
-$env:SCANNER_ID="anchor-left"
-$env:BACKEND_URL="http://127.0.0.1:5000/api/bluetooth/readings"
-.\.venv\Scripts\python.exe .\scripts\ble_scanner.py
-```
-
-Frontend terminal:
-
-```powershell
-cd frontend
-$env:VITE_API_BASE_URL="http://<MAIN_PC_IP>:5000/api"
-npm install
-npm run dev -- --host 0.0.0.0
-```
-
-## 2. Laptop 2 (Right anchor PC)
-
-Advertiser terminal (start this before the scanner):
-
-```powershell
-cd backend
-.\.venv\Scripts\python.exe .\scripts\ble_advertiser_windows.py `
-  --device-id RIGHT-1 `
-  --co-located-anchor anchor-right `
-  --backend-url http://<MAIN_PC_IP>:5000/api/bluetooth/readings
-```
-
-Right scanner terminal:
-
-```powershell
-cd backend
-$env:SCANNER_ID="anchor-right"
-$env:BACKEND_URL="http://<MAIN_PC_IP>:5000/api/bluetooth/readings"
-.\.venv\Scripts\python.exe .\scripts\ble_scanner.py
-```
-
-## 3. Laptop 3 (Right tracked PC)
-
-Advertiser terminal:
-
-```powershell
-cd backend
-.\.venv\Scripts\python.exe .\scripts\ble_advertiser_windows.py --device-id RIGHT-2
-```
-
-Laptop 3 is not another anchor, so do not set `--co-located-anchor`.
-
-Open the heatmap:
+Every four seconds each terminal should print a line similar to:
 
 ```text
-http://<MAIN_PC_IP>:5173
+Window: RSSI=-55.0 dBm score=75.0/100 (top 3 of 12 addresses)
 ```
 
-## Expected result
+The address totals in parentheses are local debugging only. They are not sent
+as a device count and do not control the heatmap colour.
+
+## API check
+
+In Postman:
 
 ```http
-GET http://<MAIN_PC_IP>:5000/api/bluetooth/count
+GET http://<MAIN_PC_IP>:5000/api/bluetooth/signal-strength
 ```
 
-```json
-{
-  "total_active_devices": 3,
-  "max_devices": 5,
-  "zones": {
-    "left": { "count": 1 },
-    "right": { "count": 2 }
-  },
-  "unassigned_count": 0,
-  "ignored_active_devices": 0
-}
+Both zones should have `status: active`. If a scanner is stopped for 15
+seconds, its zone becomes `offline` with `signal_score: null`.
+
+## Physical scenarios
+
+1. Move active Bluetooth sources close to the Left PC. The Left score and red
+   intensity should become higher.
+2. Move the sources close to the Right laptop. The Right side should become
+   stronger after EMA smoothing catches up.
+3. Place the sources near the middle. Both scores and colours should be close;
+   `stronger_zone` may be `balanced`.
+
+Keep sources still for at least 15-20 seconds at each position so several
+four-second scan windows contribute to the EMA.
+
+## Calibration
+
+If both computers are equally far from the same source but one consistently
+reports weaker RSSI, set its Docker calibration offset. For example:
+
+```text
+BLE_LEFT_RSSI_OFFSET=0
+BLE_RIGHT_RSSI_OFFSET=4
 ```
 
-Detailed device/RSSI data:
-
-```http
-GET http://<MAIN_PC_IP>:5000/api/bluetooth/devices
-```
-
-## Adding computers 4 and 5
-
-Run the advertiser on each additional computer with a unique ID:
-
-```powershell
-.\.venv\Scripts\python.exe .\scripts\ble_advertiser_windows.py --device-id PC-04
-.\.venv\Scripts\python.exe .\scripts\ble_advertiser_windows.py --device-id PC-05
-```
-
-The two anchors will detect them and the backend will count them up to the
-configured maximum of five.
-
-## Discovering and allowlisting a non-project BLE device
-
-Discovery mode prints nearby BLE advertisers and sends no data:
-
-```powershell
-$env:BLE_DISCOVERY="1"
-.\.venv\Scripts\python.exe .\scripts\ble_scanner.py
-```
-
-After noting a stable address or exact advertised name, restart both anchors
-with the same comma-separated allowlist:
-
-```powershell
-Remove-Item Env:BLE_DISCOVERY -ErrorAction SilentlyContinue
-$env:BLE_TARGETS="AA:BB:CC:DD:EE:01,Exact Device Name"
-```
-
-Avoid `BLE_SCAN_ALL=1` outside a controlled room. Nearby watches and earbuds,
-and devices that rotate private Bluetooth addresses, can otherwise create an
-incorrect count.
-
-## Troubleshooting
-
-- `radio not available`: turn Bluetooth on and confirm the PC has BLE support.
-- `Bluetooth advertising resource in use`: close other beacon/advertising
-  applications, then start the advertiser before the scanner.
-- `not supported by this Bluetooth adapter`: use a BLE-capable USB adapter or
-  attach a Nano/beacon to that computer.
-- `unassigned_count > 0`: the device has not yet been heard by both anchors.
-- A device disappears after 5 seconds without a reading by design.
-
-Windows provides BLE advertisement publishing on a best-effort basis; support
-depends on the PC's Bluetooth adapter and driver. The advertiser exits instead
-of generating a false presence record when publishing fails.
+Then rerun `docker compose up --build -d` on the Main PC.

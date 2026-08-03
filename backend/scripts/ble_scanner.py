@@ -1,30 +1,24 @@
-"""Windows/macOS BLE anchor scanner for up to five participating devices.
+"""Windowed Bluetooth signal scanner for the Left/Right room heatmap.
 
-Supported participating devices:
-1. Windows PCs running ``ble_advertiser_windows.py`` (stable manufacturer ID).
-2. Macs running ``ble_advertiser_macos.swift`` (stable ``ROOM-TAG-*`` name).
-3. Existing Arduino tags advertising a ``ROOM-TAG-*`` local name.
-4. Explicitly allowlisted BLE addresses or names via ``BLE_TARGETS``.
+Run the same program on both anchor computers and set ``ANCHOR_ID`` to either
+``left-anchor`` or ``right-anchor``. During each short scan window the scanner:
 
-Use ``BLE_DISCOVERY=1`` to list nearby advertisers without posting readings.
-``BLE_SCAN_ALL=1`` is available for controlled rooms, but an allowlist is more
-stable because unrelated watches, earbuds, and rotating private addresses may
-otherwise be counted.
+1. groups repeated advertisements by Bluetooth address,
+2. takes the median RSSI for each address,
+3. keeps only the strongest few representative signals, and
+4. sends their median RSSI and a 0-100 score to the Flask backend.
 
-On macOS, CoreBluetooth exposes a per-Mac UUID instead of a public Bluetooth
-address. Project advertisers therefore use a stable manufacturer payload or
-``ROOM-TAG-*`` name so both anchors report the same device identity.
+The address count is never used as the heatmap value or a person estimate.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
+from datetime import datetime, timezone
 import logging
 import os
-import re
+import statistics
 import sys
-import time
 from typing import Any
 
 try:
@@ -45,239 +39,150 @@ logging.basicConfig(
 )
 log = logging.getLogger("ble_scanner")
 
-SCANNER_ID = os.environ.get("SCANNER_ID")
+ANCHOR_ID = os.environ.get("ANCHOR_ID") or os.environ.get("SCANNER_ID")
 BACKEND_URL = os.environ.get("BACKEND_URL")
-DISCOVERY_ONLY = os.environ.get("BLE_DISCOVERY", "0") == "1"
-SCAN_ALL = os.environ.get("BLE_SCAN_ALL", "0") == "1"
-TARGET_SELECTORS = {
-    value.strip().casefold()
-    for value in os.environ.get("BLE_TARGETS", "").split(",")
-    if value.strip()
-}
-
-COMP6733_COMPANY_ID = 0xFFFE
-COMP6733_PAYLOAD_PREFIX = b"C6733:"
-# First eight bytes of the 128-bit UUID used by the macOS advertiser. The
-# remaining eight bytes contain the ASCII device token, padded with zeroes.
-COMP6733_MAC_SERVICE_PREFIX = bytes.fromhex("c67330334d414300")
-DEVICE_TOKEN_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,15}$")
-MIN_SEND_INTERVAL = 0.5
-DISCOVERY_LOG_INTERVAL = 5.0
-
-last_send_times: dict[str, float] = {}
-last_discovery_logs: dict[str, float] = {}
+SCAN_WINDOW_SECONDS = float(os.environ.get("BLE_SCAN_WINDOW_SECONDS", "4"))
+STRONGEST_SIGNAL_COUNT = int(os.environ.get("BLE_STRONGEST_SIGNAL_COUNT", "3"))
+MINIMUM_RSSI = float(os.environ.get("BLE_MINIMUM_RSSI", "-100"))
+MAXIMUM_RSSI = float(os.environ.get("BLE_MAXIMUM_RSSI", "-40"))
+KNOWN_ANCHOR_IDS = {"left-anchor", "right-anchor"}
 
 
-def normalise_address(address: str) -> str:
-    return address.strip().upper().replace("_", ":")
+def rssi_to_score(
+    rssi: float,
+    *,
+    minimum_rssi: float = MINIMUM_RSSI,
+    maximum_rssi: float = MAXIMUM_RSSI,
+) -> float:
+    """Convert RSSI to a linearly scaled score between 0 and 100."""
+    if maximum_rssi <= minimum_rssi:
+        raise ValueError("maximum_rssi must be greater than minimum_rssi")
+    clamped = max(minimum_rssi, min(maximum_rssi, float(rssi)))
+    return round(
+        (clamped - minimum_rssi) / (maximum_rssi - minimum_rssi) * 100.0,
+        2,
+    )
 
 
-def parse_comp6733_device_id(manufacturer_data: dict[int, bytes]) -> str | None:
-    """Extract a stable PC identifier from the COMP6733 manufacturer payload."""
-    payload = manufacturer_data.get(COMP6733_COMPANY_ID)
-    if not payload or not payload.startswith(COMP6733_PAYLOAD_PREFIX):
-        return None
-    try:
-        token = payload[len(COMP6733_PAYLOAD_PREFIX):].decode("ascii").upper()
-    except UnicodeDecodeError:
-        return None
-    if not DEVICE_TOKEN_PATTERN.fullmatch(token):
-        return None
-    return f"BT-PC-{token}"
-
-
-def parse_comp6733_mac_device_id(service_uuids: list[str] | None) -> str | None:
-    """Extract the stable Mac ID encoded in a COMP6733 service UUID."""
-    for service_uuid in service_uuids or []:
-        compact = str(service_uuid).replace("-", "")
-        try:
-            raw_uuid = bytes.fromhex(compact)
-        except ValueError:
-            continue
-        if len(raw_uuid) != 16 or not raw_uuid.startswith(COMP6733_MAC_SERVICE_PREFIX):
-            continue
-        try:
-            token = raw_uuid[8:].rstrip(b"\x00").decode("ascii").upper()
-        except UnicodeDecodeError:
-            continue
-        if DEVICE_TOKEN_PATTERN.fullmatch(token):
-            return f"ROOM-TAG-{token}"
-    return None
-
-
-def _address_device_id(address: str) -> str:
-    # A short hash keeps device addresses out of the UI while preserving a
-    # common identity when both anchors observe the same address.
-    digest = hashlib.sha256(normalise_address(address).encode("utf-8")).hexdigest()
-    return f"BT-ADDR-{digest[:12].upper()}"
-
-
-def identify_device(
+def collect_observation(
     device: BLEDevice,
     advertisement_data: AdvertisementData,
-) -> dict[str, str] | None:
-    """Return the canonical participating-device identity, or ``None``."""
-    address = normalise_address(device.address)
-    name = (advertisement_data.local_name or device.name or "").strip()
+    observations: dict[str, list[float]],
+) -> None:
+    """Add one valid RSSI reading to its address group."""
+    address = str(device.address or "").strip()
+    rssi = advertisement_data.rssi
+    if not address or isinstance(rssi, bool) or not isinstance(rssi, (int, float)):
+        return
+    if not -120 <= float(rssi) <= 0:
+        return
+    observations.setdefault(address, []).append(float(rssi))
 
-    project_device_id = parse_comp6733_device_id(advertisement_data.manufacturer_data)
-    if project_device_id:
-        token = project_device_id.removeprefix("BT-PC-")
+
+def summarise_window(
+    observations: dict[str, list[float]],
+    *,
+    strongest_count: int = STRONGEST_SIGNAL_COUNT,
+) -> dict[str, float | int | None]:
+    """Reduce a scan window without summing signals or using address count."""
+    if strongest_count < 1:
+        raise ValueError("strongest_count must be at least 1")
+
+    representative_rssi = [
+        float(statistics.median(readings))
+        for readings in observations.values()
+        if readings
+    ]
+    representative_rssi.sort(reverse=True)
+    strongest = representative_rssi[:strongest_count]
+
+    if not strongest:
         return {
-            "device_id": project_device_id,
-            "device_name": name or f"Bluetooth PC {token}",
-            "device_address": address,
+            "average_rssi": None,
+            "signal_score": 0.0,
+            "observed_address_count": 0,
+            "strongest_signal_count": 0,
         }
 
-    mac_device_id = parse_comp6733_mac_device_id(advertisement_data.service_uuids)
-    if mac_device_id:
-        token = mac_device_id.removeprefix("ROOM-TAG-")
-        return {
-            "device_id": mac_device_id,
-            "device_name": name or f"Bluetooth Mac {token}",
-            "device_address": address,
-        }
-
-    if name.upper().startswith("ROOM-TAG-"):
-        return {
-            "device_id": name.upper(),
-            "device_name": name,
-            "device_address": address,
-        }
-
-    selected = (
-        address.casefold() in TARGET_SELECTORS
-        or name.casefold() in TARGET_SELECTORS
-        or SCAN_ALL
-    )
-    if not selected:
-        return None
-
+    overall_rssi = round(float(statistics.median(strongest)), 2)
     return {
-        "device_id": _address_device_id(address),
-        "device_name": name or "Unnamed BLE device",
-        "device_address": address,
+        "average_rssi": overall_rssi,
+        "signal_score": rssi_to_score(overall_rssi),
+        # Debug-only metrics. They are logged locally and not sent as the
+        # heatmap measurement or exposed as occupancy/device counts.
+        "observed_address_count": len(representative_rssi),
+        "strongest_signal_count": len(strongest),
     }
 
 
-def _post_reading(reading: dict[str, Any]) -> None:
+def build_payload(anchor_id: str, summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "anchor_id": anchor_id,
+        "average_rssi": summary["average_rssi"],
+        "signal_score": summary["signal_score"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _post_summary(payload: dict[str, Any]) -> None:
     try:
-        response = requests.post(BACKEND_URL, json=reading, timeout=3.0)
+        response = requests.post(BACKEND_URL, json=payload, timeout=5.0)
         if not response.ok:
             log.warning(
-                "Backend rejected reading: %s - %s",
+                "Backend rejected signal window: %s - %s",
                 response.status_code,
                 response.text,
             )
     except requests.exceptions.ConnectionError:
         log.error("Cannot connect to backend at %s", BACKEND_URL)
     except requests.exceptions.Timeout:
-        log.warning("Timeout sending reading to %s", BACKEND_URL)
-    except Exception as exc:  # pragma: no cover - defensive logging
+        log.warning("Timeout sending signal window to %s", BACKEND_URL)
+    except requests.RequestException as exc:  # pragma: no cover
         log.error("HTTP request failed: %s", exc)
 
 
-async def sender_task(queue: asyncio.Queue) -> None:
-    loop = asyncio.get_running_loop()
-    while True:
-        try:
-            reading = await queue.get()
-            await loop.run_in_executor(None, _post_reading, reading)
-            queue.task_done()
-        except asyncio.CancelledError:
-            break
-        except Exception as exc:  # pragma: no cover - defensive logging
-            log.error("Sender worker error: %s", exc)
-
-
-def detection_callback(
-    device: BLEDevice,
-    advertisement_data: AdvertisementData,
-    queue: asyncio.Queue,
-) -> None:
-    name = (advertisement_data.local_name or device.name or "Unnamed").strip()
-    address = normalise_address(device.address)
-    now = time.time()
-
-    if DISCOVERY_ONLY:
-        discovery_key = f"{address}|{name}"
-        if now - last_discovery_logs.get(discovery_key, 0.0) >= DISCOVERY_LOG_INTERVAL:
-            last_discovery_logs[discovery_key] = now
-            log.info(
-                "DISCOVERED name=%r address=%s RSSI=%s manufacturer_ids=%s service_uuids=%s",
-                name,
-                address,
-                advertisement_data.rssi,
-                sorted(advertisement_data.manufacturer_data),
-                advertisement_data.service_uuids,
-            )
-        return
-
-    identity = identify_device(device, advertisement_data)
-    if identity is None:
-        return
-
-    device_id = identity["device_id"]
-    if now - last_send_times.get(device_id, 0.0) < MIN_SEND_INTERVAL:
-        return
-    last_send_times[device_id] = now
-
-    reading = {
-        "message_type": "bluetooth_rssi",
-        "scanner_id": SCANNER_ID,
-        **identity,
-        "rssi": advertisement_data.rssi,
-        "tx_power": advertisement_data.tx_power,
-    }
-    try:
-        queue.put_nowait(reading)
-        log.info(
-            "Detected %s (%s): RSSI=%s dBm",
-            identity["device_name"],
-            device_id,
-            advertisement_data.rssi,
-        )
-    except asyncio.QueueFull:
-        log.warning("Queue full, dropping reading")
-
-
 async def main() -> None:
-    if not DISCOVERY_ONLY and not SCANNER_ID:
-        log.error("SCANNER_ID must be anchor-left or anchor-right")
-        sys.exit(1)
-    if not DISCOVERY_ONLY and not BACKEND_URL:
-        log.error("BACKEND_URL environment variable must be set")
-        sys.exit(1)
+    if ANCHOR_ID not in KNOWN_ANCHOR_IDS:
+        log.error("ANCHOR_ID must be left-anchor or right-anchor")
+        raise SystemExit(1)
+    if not BACKEND_URL:
+        log.error("BACKEND_URL must point to /api/bluetooth/signals")
+        raise SystemExit(1)
+    if SCAN_WINDOW_SECONDS <= 0:
+        log.error("BLE_SCAN_WINDOW_SECONDS must be greater than 0")
+        raise SystemExit(1)
+    if STRONGEST_SIGNAL_COUNT < 1:
+        log.error("BLE_STRONGEST_SIGNAL_COUNT must be at least 1")
+        raise SystemExit(1)
 
-    if DISCOVERY_ONLY:
-        log.info("Starting BLE discovery mode (no readings will be posted)")
-    else:
-        log.info("Starting BLE scanner %r", SCANNER_ID)
-        log.info("Forwarding readings to %s", BACKEND_URL)
-        if TARGET_SELECTORS:
-            log.info("Allowlisted targets: %s", sorted(TARGET_SELECTORS))
-        elif SCAN_ALL:
-            log.warning("BLE_SCAN_ALL=1: unrelated nearby BLE advertisers may be counted")
-        else:
-            log.info("Accepting COMP6733 PC beacons and ROOM-TAG-* devices")
+    observations: dict[str, list[float]] = {}
 
-    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-    sender = asyncio.create_task(sender_task(queue))
-    scanner = BleakScanner(
-        detection_callback=lambda device, data: detection_callback(device, data, queue)
-    )
+    def on_detection(device: BLEDevice, data: AdvertisementData) -> None:
+        collect_observation(device, data, observations)
+
+    scanner = BleakScanner(detection_callback=on_detection)
+    log.info("Starting %s with %.1f-second windows", ANCHOR_ID, SCAN_WINDOW_SECONDS)
+    log.info("Sending signal intensity to %s", BACKEND_URL)
 
     try:
         await scanner.start()
-        log.info("Scanner started")
         while True:
-            await asyncio.sleep(1.0)
-    except asyncio.CancelledError:
-        log.info("Shutting down scanner")
+            await asyncio.sleep(SCAN_WINDOW_SECONDS)
+            completed_window = observations
+            observations = {}
+            summary = summarise_window(completed_window)
+            payload = build_payload(ANCHOR_ID, summary)
+            await asyncio.to_thread(_post_summary, payload)
+            log.info(
+                "Window: RSSI=%s dBm score=%.1f/100 (top %d of %d addresses)",
+                summary["average_rssi"] if summary["average_rssi"] is not None else "none",
+                summary["signal_score"],
+                summary["strongest_signal_count"],
+                summary["observed_address_count"],
+            )
     finally:
         await scanner.stop()
-        sender.cancel()
-        log.info("Shutdown complete")
+        log.info("Scanner stopped")
 
 
 if __name__ == "__main__":

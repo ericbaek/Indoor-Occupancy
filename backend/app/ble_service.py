@@ -1,164 +1,136 @@
-"""Two-zone Bluetooth device counting based on smoothed RSSI comparison."""
+"""Two-zone Bluetooth signal-strength state and smoothing.
+
+The scanner reduces a short window of advertisements to one representative
+RSSI value. The backend applies per-anchor calibration, converts RSSI to a
+0-100 score, and smooths the score with an exponential moving average.
+
+No device count, distance, coordinate, or person estimate is produced here.
+"""
 
 from __future__ import annotations
 
-import statistics
+from datetime import datetime, timezone
 from typing import Any
 
 from . import ble_config
-from .database import get_active_tags, get_recent_bluetooth_readings
 
 
-_device_state: dict[str, dict[str, Any]] = {}
-_device_metadata: dict[str, dict[str, str | None]] = {}
-
-# Backward-compatible name used by existing tests and development tooling.
-_tag_state = _device_state
+_anchor_state: dict[str, dict[str, Any]] = {}
 
 
-def register_device_metadata(
-    device_id: str,
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def reset_anchor_state() -> None:
+    """Clear in-memory Bluetooth state. Used by tests and local demos."""
+    _anchor_state.clear()
+
+
+def rssi_to_score(rssi: float) -> float:
+    """Linearly convert a calibrated RSSI value to a clamped 0-100 score."""
+    minimum = float(ble_config.BLE_SETTINGS["minimum_rssi"])
+    maximum = float(ble_config.BLE_SETTINGS["maximum_rssi"])
+    if maximum <= minimum:
+        raise ValueError("maximum_rssi must be greater than minimum_rssi")
+    clamped = max(minimum, min(maximum, float(rssi)))
+    return round((clamped - minimum) / (maximum - minimum) * 100.0, 2)
+
+
+def record_anchor_signal(
+    anchor_id: str,
     *,
-    device_name: str | None = None,
-    device_address: str | None = None,
-) -> None:
-    metadata = _device_metadata.setdefault(device_id, {})
-    if device_name:
-        metadata["device_name"] = device_name
-    if device_address:
-        metadata["device_address"] = device_address
+    average_rssi: float | None,
+    reported_signal_score: float,
+    reported_at: str | None,
+) -> dict[str, Any]:
+    """Record one scanner window and return the current public snapshot."""
+    now = _utc_now()
+    offset = float(ble_config.ANCHOR_RSSI_OFFSET[anchor_id])
+    calibrated_rssi = None if average_rssi is None else round(average_rssi + offset, 2)
+    current_score = 0.0 if calibrated_rssi is None else rssi_to_score(calibrated_rssi)
 
+    previous = _anchor_state.get(anchor_id)
+    alpha = float(ble_config.BLE_SETTINGS["ema_alpha"])
+    if previous is None:
+        smoothed_score = current_score
+    else:
+        smoothed_score = (
+            alpha * current_score
+            + (1.0 - alpha) * float(previous["smoothed_signal_score"])
+        )
 
-def smooth_rssi(readings: list[dict[str, Any]]) -> dict[str, float]:
-    """Return the rolling arithmetic mean RSSI for each recognised anchor."""
-    grouped: dict[str, list[float]] = {}
-    for reading in readings:
-        scanner_id = reading["scanner_id"]
-        if scanner_id not in ble_config.KNOWN_SCANNER_IDS:
-            continue
-        grouped.setdefault(scanner_id, []).append(float(reading["rssi"]))
-
-    return {
-        scanner_id: round(statistics.fmean(values), 2)
-        for scanner_id, values in grouped.items()
-        if values
+    _anchor_state[anchor_id] = {
+        "average_rssi": calibrated_rssi,
+        "raw_average_rssi": average_rssi,
+        "raw_signal_score": current_score,
+        "reported_signal_score": reported_signal_score,
+        "smoothed_signal_score": round(smoothed_score, 2),
+        "calibration_offset_db": offset,
+        "reported_at": reported_at,
+        "received_at": now,
     }
+    return get_anchor_snapshot(anchor_id, now=now)
 
 
-def assign_zone(device_id: str, window_rssi: dict[str, float]) -> str:
-    """Assign a device to left/right with rolling RSSI and 5 dBm hysteresis."""
-    state = _device_state.setdefault(device_id, {})
-    current_zone = state.get("current_zone", "unknown")
-    left_rssi = window_rssi.get("anchor-left")
-    right_rssi = window_rssi.get("anchor-right")
+def get_anchor_snapshot(
+    anchor_id: str,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return active data or an offline snapshot when the anchor is stale."""
+    now = now or _utc_now()
+    zone = ble_config.ANCHOR_ZONES[anchor_id]
+    state = _anchor_state.get(anchor_id)
+    timeout = float(ble_config.BLE_SETTINGS["anchor_timeout_seconds"])
 
-    # Anchor PCs cannot receive their own BLE packet. Their advertiser posts a
-    # trusted -20 dBm self heartbeat while the BLE publisher is active.
-    self_threshold = float(ble_config.BLE_SETTINGS["self_proximity_rssi_threshold"])
-    if current_zone == "unknown" and right_rssi is None and left_rssi is not None:
-        if left_rssi >= self_threshold:
-            current_zone = "left"
-    elif current_zone == "unknown" and left_rssi is None and right_rssi is not None:
-        if right_rssi >= self_threshold:
-            current_zone = "right"
-
-    if left_rssi is None or right_rssi is None:
-        state["current_zone"] = current_zone
-        return current_zone
-
-    threshold = float(ble_config.BLE_SETTINGS["zone_switch_threshold_db"])
-    if current_zone == "unknown":
-        current_zone = "left" if left_rssi >= right_rssi else "right"
-    elif current_zone == "left" and right_rssi - left_rssi >= threshold:
-        current_zone = "right"
-    elif current_zone == "right" and left_rssi - right_rssi >= threshold:
-        current_zone = "left"
-
-    state["current_zone"] = current_zone
-    return current_zone
-
-
-def get_device_state(device_id: str) -> dict[str, Any]:
-    """Return active zone, identity, and smoothed RSSI for one device."""
-    window_seconds = float(ble_config.BLE_SETTINGS["rssi_window_seconds"])
-    readings = get_recent_bluetooth_readings(device_id, window_seconds)
-    metadata = _device_metadata.get(device_id, {})
-    if not readings:
-        _device_state.pop(device_id, None)
+    if state is None or (now - state["received_at"]).total_seconds() > timeout:
         return {
-            "device_id": device_id,
-            "tag_id": device_id,
-            "device_name": metadata.get("device_name") or device_id,
-            "device_address": metadata.get("device_address"),
-            "status": "inactive",
-            "current_zone": "unknown",
-            "scanner_rssi": {},
-            "active_scanners": [],
-            "last_seen_at": None,
+            "anchor_id": anchor_id,
+            "zone": zone,
+            "status": "offline",
+            "average_rssi": None,
+            "signal_score": None,
+            "last_seen_at": state["received_at"].isoformat() if state else None,
+            "calibration_offset_db": float(ble_config.ANCHOR_RSSI_OFFSET[anchor_id]),
         }
 
-    window_rssi = smooth_rssi(readings)
-    state = _device_state.setdefault(device_id, {})
-    latest_rssi = dict(state.get("scanner_rssi", {}))
-    latest_rssi.update(window_rssi)
-    current_zone = assign_zone(device_id, window_rssi)
-    last_seen_at = readings[-1]["received_at"]
-
-    state.update({
-        "current_zone": current_zone,
-        "scanner_rssi": latest_rssi,
-        "last_seen_at": last_seen_at,
-    })
-
     return {
-        "device_id": device_id,
-        "tag_id": device_id,
-        "device_name": metadata.get("device_name") or device_id,
-        "device_address": metadata.get("device_address"),
+        "anchor_id": anchor_id,
+        "zone": zone,
         "status": "active",
-        "current_zone": current_zone,
-        "scanner_rssi": latest_rssi,
-        "active_scanners": sorted(window_rssi),
-        "last_seen_at": last_seen_at,
+        "average_rssi": state["average_rssi"],
+        "signal_score": state["smoothed_signal_score"],
+        "raw_signal_score": state["raw_signal_score"],
+        "last_seen_at": state["received_at"].isoformat(),
+        "reported_at": state["reported_at"],
+        "calibration_offset_db": state["calibration_offset_db"],
     }
 
 
-def get_tracking_summary() -> dict[str, Any]:
-    """Return at most five unique active Bluetooth devices by room side."""
-    timeout = float(ble_config.BLE_SETTINGS["inactive_timeout_seconds"])
-    maximum = int(ble_config.BLE_SETTINGS["max_tracked_devices"])
-    active_rows = get_active_tags(inactive_timeout_seconds=timeout)
-    selected_rows = active_rows[:maximum]
-    all_active_ids = {row["tag_id"] for row in active_rows}
-    selected_ids = [row["tag_id"] for row in selected_rows]
+def get_signal_summary() -> dict[str, Any]:
+    """Return the latest Left/Right signal intensity without device counts."""
+    now = _utc_now()
+    zones = {
+        zone: get_anchor_snapshot(anchor_id, now=now)
+        for zone, anchor_id in ble_config.ZONE_ANCHORS.items()
+    }
 
-    for stale_device_id in set(_device_state) - all_active_ids:
-        _device_state.pop(stale_device_id, None)
-        _device_metadata.pop(stale_device_id, None)
+    left = zones["left"]
+    right = zones["right"]
+    stronger_zone: str | None = None
+    if left["status"] == "active" and right["status"] == "active":
+        difference = float(left["signal_score"]) - float(right["signal_score"])
+        threshold = float(ble_config.BLE_SETTINGS["balanced_threshold"])
+        if abs(difference) < threshold:
+            stronger_zone = "balanced"
+        else:
+            stronger_zone = "left" if difference > 0 else "right"
 
-    counts = {zone: 0 for zone in ble_config.ZONE_NAMES}
-    devices: list[dict[str, Any]] = []
-    for device_id in selected_ids:
-        device = get_device_state(device_id)
-        if device["status"] != "active":
-            continue
-        devices.append(device)
-        zone = device["current_zone"]
-        if zone in counts:
-            counts[zone] += 1
-
-    zones = {zone: {"count": counts[zone]} for zone in ble_config.ZONE_NAMES}
     return {
-        "total_active_devices": len(devices),
-        "max_devices": maximum,
-        "ignored_active_devices": max(0, len(active_rows) - maximum),
+        "measurement": "relative_bluetooth_signal_intensity",
         "zones": zones,
-        "devices": devices,
-        # Compatibility fields for clients still using the earlier tag API.
-        "total_active_tags": len(devices),
-        "tags": devices,
+        "stronger_zone": stronger_zone,
+        "anchor_timeout_seconds": ble_config.BLE_SETTINGS["anchor_timeout_seconds"],
+        "ema_alpha": ble_config.BLE_SETTINGS["ema_alpha"],
     }
-
-
-get_tag_state = get_device_state
-get_tag_position = get_device_state
