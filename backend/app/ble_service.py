@@ -1,4 +1,4 @@
-"""Two-zone Bluetooth tracking based only on smoothed RSSI comparison."""
+"""Two-zone Bluetooth device counting based on smoothed RSSI comparison."""
 
 from __future__ import annotations
 
@@ -9,8 +9,24 @@ from . import ble_config
 from .database import get_active_tags, get_recent_bluetooth_readings
 
 
-# Short-lived display state. Raw readings remain in SQLite.
-_tag_state: dict[str, dict[str, Any]] = {}
+_device_state: dict[str, dict[str, Any]] = {}
+_device_metadata: dict[str, dict[str, str | None]] = {}
+
+# Backward-compatible name used by existing tests and development tooling.
+_tag_state = _device_state
+
+
+def register_device_metadata(
+    device_id: str,
+    *,
+    device_name: str | None = None,
+    device_address: str | None = None,
+) -> None:
+    metadata = _device_metadata.setdefault(device_id, {})
+    if device_name:
+        metadata["device_name"] = device_name
+    if device_address:
+        metadata["device_address"] = device_address
 
 
 def smooth_rssi(readings: list[dict[str, Any]]) -> dict[str, float]:
@@ -29,18 +45,25 @@ def smooth_rssi(readings: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def assign_zone(tag_id: str, window_rssi: dict[str, float]) -> str:
-    """Assign a tag to left/right using a 5 dBm switching hysteresis.
-
-    Both anchors are required for a first assignment. If one anchor briefly
-    misses the tag later, the previous zone is retained instead of flapping.
-    """
-    state = _tag_state.setdefault(tag_id, {})
+def assign_zone(device_id: str, window_rssi: dict[str, float]) -> str:
+    """Assign a device to left/right with rolling RSSI and 5 dBm hysteresis."""
+    state = _device_state.setdefault(device_id, {})
     current_zone = state.get("current_zone", "unknown")
-
     left_rssi = window_rssi.get("anchor-left")
     right_rssi = window_rssi.get("anchor-right")
+
+    # Anchor PCs cannot receive their own BLE packet. Their advertiser posts a
+    # trusted -20 dBm self heartbeat while the BLE publisher is active.
+    self_threshold = float(ble_config.BLE_SETTINGS["self_proximity_rssi_threshold"])
+    if current_zone == "unknown" and right_rssi is None and left_rssi is not None:
+        if left_rssi >= self_threshold:
+            current_zone = "left"
+    elif current_zone == "unknown" and left_rssi is None and right_rssi is not None:
+        if right_rssi >= self_threshold:
+            current_zone = "right"
+
     if left_rssi is None or right_rssi is None:
+        state["current_zone"] = current_zone
         return current_zone
 
     threshold = float(ble_config.BLE_SETTINGS["zone_switch_threshold_db"])
@@ -55,14 +78,18 @@ def assign_zone(tag_id: str, window_rssi: dict[str, float]) -> str:
     return current_zone
 
 
-def get_tag_state(tag_id: str) -> dict[str, Any]:
-    """Return the active zone and latest smoothed RSSI values for one tag."""
+def get_device_state(device_id: str) -> dict[str, Any]:
+    """Return active zone, identity, and smoothed RSSI for one device."""
     window_seconds = float(ble_config.BLE_SETTINGS["rssi_window_seconds"])
-    readings = get_recent_bluetooth_readings(tag_id, window_seconds)
+    readings = get_recent_bluetooth_readings(device_id, window_seconds)
+    metadata = _device_metadata.get(device_id, {})
     if not readings:
-        _tag_state.pop(tag_id, None)
+        _device_state.pop(device_id, None)
         return {
-            "tag_id": tag_id,
+            "device_id": device_id,
+            "tag_id": device_id,
+            "device_name": metadata.get("device_name") or device_id,
+            "device_address": metadata.get("device_address"),
             "status": "inactive",
             "current_zone": "unknown",
             "scanner_rssi": {},
@@ -71,13 +98,10 @@ def get_tag_state(tag_id: str) -> dict[str, Any]:
         }
 
     window_rssi = smooth_rssi(readings)
-    state = _tag_state.setdefault(tag_id, {})
-
-    # Retain the latest value from each laptop for display, while zone changes
-    # are based only on anchors present in the current rolling window.
+    state = _device_state.setdefault(device_id, {})
     latest_rssi = dict(state.get("scanner_rssi", {}))
     latest_rssi.update(window_rssi)
-    current_zone = assign_zone(tag_id, window_rssi)
+    current_zone = assign_zone(device_id, window_rssi)
     last_seen_at = readings[-1]["received_at"]
 
     state.update({
@@ -87,7 +111,10 @@ def get_tag_state(tag_id: str) -> dict[str, Any]:
     })
 
     return {
-        "tag_id": tag_id,
+        "device_id": device_id,
+        "tag_id": device_id,
+        "device_name": metadata.get("device_name") or device_id,
+        "device_address": metadata.get("device_address"),
         "status": "active",
         "current_zone": current_zone,
         "scanner_rssi": latest_rssi,
@@ -97,33 +124,41 @@ def get_tag_state(tag_id: str) -> dict[str, Any]:
 
 
 def get_tracking_summary() -> dict[str, Any]:
-    """Return unique active-tag counts for the left and right zones."""
+    """Return at most five unique active Bluetooth devices by room side."""
     timeout = float(ble_config.BLE_SETTINGS["inactive_timeout_seconds"])
+    maximum = int(ble_config.BLE_SETTINGS["max_tracked_devices"])
     active_rows = get_active_tags(inactive_timeout_seconds=timeout)
-    active_tag_ids = {row["tag_id"] for row in active_rows}
+    selected_rows = active_rows[:maximum]
+    all_active_ids = {row["tag_id"] for row in active_rows}
+    selected_ids = [row["tag_id"] for row in selected_rows]
 
-    # Remove stale in-memory state at the same time tags leave the active count.
-    for stale_tag_id in set(_tag_state) - active_tag_ids:
-        _tag_state.pop(stale_tag_id, None)
+    for stale_device_id in set(_device_state) - all_active_ids:
+        _device_state.pop(stale_device_id, None)
+        _device_metadata.pop(stale_device_id, None)
 
     counts = {zone: 0 for zone in ble_config.ZONE_NAMES}
-    tags: list[dict[str, Any]] = []
-    for tag_id in sorted(active_tag_ids):
-        tag = get_tag_state(tag_id)
-        if tag["status"] != "active":
+    devices: list[dict[str, Any]] = []
+    for device_id in selected_ids:
+        device = get_device_state(device_id)
+        if device["status"] != "active":
             continue
-        tags.append(tag)
-        zone = tag["current_zone"]
+        devices.append(device)
+        zone = device["current_zone"]
         if zone in counts:
             counts[zone] += 1
 
+    zones = {zone: {"count": counts[zone]} for zone in ble_config.ZONE_NAMES}
     return {
-        "total_active_tags": len(tags),
-        "zones": {zone: {"count": counts[zone]} for zone in ble_config.ZONE_NAMES},
-        "tags": tags,
+        "total_active_devices": len(devices),
+        "max_devices": maximum,
+        "ignored_active_devices": max(0, len(active_rows) - maximum),
+        "zones": zones,
+        "devices": devices,
+        # Compatibility fields for clients still using the earlier tag API.
+        "total_active_tags": len(devices),
+        "tags": devices,
     }
 
 
-# Preserve the existing URL/service call name for older clients, but its
-# response is now zone-only and contains no distances or coordinates.
-get_tag_position = get_tag_state
+get_tag_state = get_device_state
+get_tag_position = get_device_state

@@ -1,10 +1,10 @@
 import "./BleTracker.css";
-import type { BleTagState, BleZoneName } from "../data";
+import type { BleDeviceState, BleZoneName } from "../data";
 
 interface BleTrackerProps {
-  tagCount: number;
+  deviceCount: number;
   zones: Record<BleZoneName, number>;
-  tags: BleTagState[];
+  devices: BleDeviceState[];
 }
 
 const ZONE_DETAILS: Array<{ id: BleZoneName; label: string; anchor: string }> = [
@@ -19,46 +19,46 @@ function intensity(count: number): string {
   return "high";
 }
 
-function formatRssi(tag: BleTagState, zone: BleZoneName): string {
-  const rssi = tag.scanner_rssi[`anchor-${zone}`];
+function formatRssi(device: BleDeviceState, zone: BleZoneName): string {
+  const rssi = device.scanner_rssi[`anchor-${zone}`];
   return rssi === undefined ? "--" : `${rssi.toFixed(1)} dBm`;
 }
 
-export default function BleTracker({ tagCount, zones, tags }: BleTrackerProps) {
-  const unassigned = tags.filter((tag) => tag.current_zone === "unknown");
+export default function BleTracker({ deviceCount, zones, devices }: BleTrackerProps) {
+  const unassigned = devices.filter((device) => device.current_zone === "unknown");
 
   return (
     <section className="ble-tracker-card card-base" aria-label="Bluetooth room heatmap">
       <div className="ble-header">
         <div>
-          <h3 className="card-title">Bluetooth Room Distribution</h3>
-          <p className="ble-subtitle">Two-zone estimate from smoothed laptop RSSI</p>
+          <h3 className="card-title">Bluetooth Device Distribution</h3>
+          <p className="ble-subtitle">Up to 5 real devices · smoothed two-anchor RSSI</p>
         </div>
-        <span className={`ble-badge ${tagCount > 0 ? "active" : "inactive"}`}>
-          {tagCount} active tag{tagCount === 1 ? "" : "s"}
+        <span className={`ble-badge ${deviceCount > 0 ? "active" : "inactive"}`}>
+          {deviceCount} active device{deviceCount === 1 ? "" : "s"}
         </span>
       </div>
 
       <div className="ble-heatmap">
         {ZONE_DETAILS.map((zone) => {
           const count = zones[zone.id] ?? 0;
-          const zoneTags = tags.filter((tag) => tag.current_zone === zone.id);
+          const zoneDevices = devices.filter((device) => device.current_zone === zone.id);
           return (
             <article
               key={zone.id}
               className={`ble-zone ble-zone-${intensity(count)}`}
-              aria-label={`${zone.label}: ${count} tags`}
+              aria-label={`${zone.label}: ${count} devices`}
             >
               <span className="ble-zone-label">{zone.label}</span>
               <strong className="ble-zone-count">{count}</strong>
-              <span className="ble-zone-unit">tag{count === 1 ? "" : "s"}</span>
+              <span className="ble-zone-unit">device{count === 1 ? "" : "s"}</span>
               <span className="ble-zone-anchor">{zone.anchor}</span>
 
               <div className="ble-zone-tags">
-                {zoneTags.map((tag) => (
-                  <span className="ble-tag-chip" key={tag.tag_id}>
-                    <span>{tag.tag_id}</span>
-                    <span>{formatRssi(tag, zone.id)}</span>
+                {zoneDevices.map((device) => (
+                  <span className="ble-tag-chip" key={device.device_id}>
+                    <span>{device.device_name}</span>
+                    <span>{formatRssi(device, zone.id)}</span>
                   </span>
                 ))}
               </div>
@@ -69,11 +69,11 @@ export default function BleTracker({ tagCount, zones, tags }: BleTrackerProps) {
 
       {unassigned.length > 0 && (
         <p className="ble-unassigned">
-          Waiting for both anchors: {unassigned.map((tag) => tag.tag_id).join(", ")}
+          Waiting for both anchors: {unassigned.map((device) => device.device_name).join(", ")}
         </p>
       )}
       <p className="ble-note">
-        The opposite anchor must become at least 5 dBm stronger before a tag switches sides.
+        Devices time out after 5 seconds. The opposite anchor must become at least 5 dBm stronger to switch sides.
       </p>
     </section>
   );

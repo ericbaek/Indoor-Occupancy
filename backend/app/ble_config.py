@@ -15,6 +15,10 @@ ANCHOR_ZONES: dict[str, str] = {
 ZONE_NAMES: tuple[str, str] = ("left", "right")
 
 BLE_SETTINGS: dict[str, float | int] = {
+    # At most this many unique participating Bluetooth devices appear in the
+    # room count. Extra ambient advertisers are reported as ignored.
+    "max_tracked_devices": 5,
+
     # Readings inside this rolling window are averaged per anchor.
     "rssi_window_seconds": 5.0,
 
@@ -24,6 +28,11 @@ BLE_SETTINGS: dict[str, float | int] = {
     # Once assigned, the other anchor must be at least this much stronger
     # before the tag changes sides.
     "zone_switch_threshold_db": 5.0,
+
+    # A single reading this strong is a trusted co-located-anchor heartbeat
+    # from ble_advertiser_windows.py, used because an adapter cannot hear its
+    # own advertisement.
+    "self_proximity_rssi_threshold": -35.0,
 
     # Data retention for raw readings (hours).
     "retention_hours": 24,

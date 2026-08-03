@@ -5,3 +5,7 @@ pytest
 requests
 pyserial
 bleak
+winrt-Windows-Devices-Bluetooth-Advertisement==3.2.1; sys_platform == "win32"
+winrt-Windows-Devices-Bluetooth==3.2.1; sys_platform == "win32"
+winrt-Windows-Devices-Radios==3.2.1; sys_platform == "win32"
+winrt-Windows-Storage-Streams==3.2.1; sys_platform == "win32"

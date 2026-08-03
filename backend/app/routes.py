@@ -724,7 +724,7 @@ def get_occupancy_status():
 
     # BLE Tag tracking integration (two RSSI zones; no distance/coordinates).
     bluetooth_summary = ble_service.get_tracking_summary()
-    bluetooth_tag_count = bluetooth_summary["total_active_tags"]
+    bluetooth_device_count = bluetooth_summary["total_active_devices"]
     bluetooth_zones = {
         zone: data["count"] for zone, data in bluetooth_summary["zones"].items()
     }
@@ -742,6 +742,7 @@ def get_occupancy_status():
         "last_radar_update_at": last_radar_update_at,
         "last_environment_update_at": last_environment_update_at,
         "mismatch_started_at": _mismatch_started_at,
-        "bluetooth_tag_count": bluetooth_tag_count,
+        "bluetooth_device_count": bluetooth_device_count,
+        "bluetooth_tag_count": bluetooth_device_count,
         "bluetooth_zones": bluetooth_zones,
     }), 200

@@ -134,9 +134,9 @@ function App() {
             </section>
 
             <BleTracker 
-              tagCount={data.bleTagCount} 
+              deviceCount={data.bleDeviceCount}
               zones={data.bleZones} 
-              tags={data.bleTags}
+              devices={data.bleDevices}
             />
 
             <p className="app-footer">
@@ -160,7 +160,7 @@ function App() {
               lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
               lastOccupancyEventAt={data.lastOccupancyEventAt}
               lastEventType={data.events[0]?.event ?? null}
-              bleTags={data.bleTags}
+              bleDevices={data.bleDevices}
             />
           </section>
         )}
