@@ -65,33 +65,28 @@ export type OccupancyStatus = {
   temperature_c?: number | null;
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;
-  bluetooth_device_count?: number;
-  bluetooth_tag_count?: number;
-  bluetooth_zones?: Record<BleZoneName, number>;
 };
 
 export type BleZoneName = "left" | "right";
 
-export type BleDeviceState = {
-  device_id: string;
-  tag_id: string;
-  device_name: string;
-  device_address: string | null;
-  status: "active" | "inactive";
-  current_zone: BleZoneName | "unknown";
-  scanner_rssi: Partial<Record<"anchor-left" | "anchor-right", number>>;
-  active_scanners: string[];
+export type BleAnchorSignal = {
+  anchor_id: "left-anchor" | "right-anchor";
+  zone: BleZoneName;
+  status: "active" | "offline";
+  average_rssi: number | null;
+  signal_score: number | null;
+  raw_signal_score?: number;
   last_seen_at: string | null;
+  reported_at?: string | null;
+  calibration_offset_db: number;
 };
 
-export type BleTrackingSummary = {
-  total_active_devices: number;
-  total_active_tags: number;
-  max_devices: number;
-  ignored_active_devices: number;
-  zones: Record<BleZoneName, { count: number }>;
-  devices: BleDeviceState[];
-  tags: BleDeviceState[];
+export type BleSignalSummary = {
+  measurement: "relative_bluetooth_signal_intensity";
+  zones: Record<BleZoneName, BleAnchorSignal>;
+  stronger_zone: BleZoneName | "balanced" | null;
+  anchor_timeout_seconds: number;
+  ema_alpha: number;
 };
 
 export type Co2Reading = {

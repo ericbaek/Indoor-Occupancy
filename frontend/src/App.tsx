@@ -133,11 +133,7 @@ function App() {
               <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} elevatedPpm={preferences.co2AlertThreshold} />
             </section>
 
-            <BleTracker 
-              deviceCount={data.bleDeviceCount}
-              zones={data.bleZones} 
-              devices={data.bleDevices}
-            />
+            <BleTracker signal={data.bleSignal} />
 
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
@@ -160,7 +156,7 @@ function App() {
               lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
               lastOccupancyEventAt={data.lastOccupancyEventAt}
               lastEventType={data.events[0]?.event ?? null}
-              bleDevices={data.bleDevices}
+              bleSignal={data.bleSignal}
             />
           </section>
         )}

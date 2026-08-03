@@ -23,11 +23,10 @@
 
 .ble-badge {
   flex: 0 0 auto;
-  padding: 4px 10px;
+  padding: 5px 11px;
   border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
-  text-transform: capitalize;
 }
 
 .ble-badge.active {
@@ -54,16 +53,13 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  padding: 28px 20px;
+  padding: 32px 20px;
   color: var(--text);
   text-align: center;
-  transition: background-color 250ms ease;
+  transition: background 400ms ease;
 }
 
-.ble-zone-empty { background: color-mix(in srgb, var(--paper) 96%, #ef4444 4%); }
-.ble-zone-low { background: color-mix(in srgb, var(--paper) 78%, #ef4444 22%); }
-.ble-zone-medium { background: color-mix(in srgb, var(--paper) 52%, #ef4444 48%); }
-.ble-zone-high { background: color-mix(in srgb, var(--paper) 22%, #dc2626 78%); }
+.ble-zone-offline { color: var(--text-faint); }
 
 .ble-zone-label {
   font-size: 14px;
@@ -71,57 +67,44 @@
   letter-spacing: 0.12em;
 }
 
-.ble-zone-count {
-  margin-top: 12px;
-  font-size: clamp(48px, 7vw, 76px);
+.ble-zone-score {
+  margin-top: 14px;
+  font-size: clamp(52px, 7vw, 78px);
   line-height: 1;
 }
 
 .ble-zone-unit,
+.ble-zone-rssi,
 .ble-zone-anchor {
-  margin-top: 5px;
+  margin-top: 6px;
   font-size: 12px;
+}
+
+.ble-zone-rssi {
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-weight: 600;
 }
 
 .ble-zone-anchor { opacity: 0.68; }
 
-.ble-zone-tags {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  min-height: 27px;
-  margin-top: 20px;
+.ble-zone-unavailable {
+  margin-top: 22px;
+  font-size: 20px;
+  font-weight: 600;
 }
 
-.ble-tag-chip {
-  display: flex;
-  gap: 8px;
-  padding: 5px 8px;
-  border: 1px solid rgb(255 255 255 / 28%);
-  border-radius: 5px;
-  background: rgb(255 255 255 / 22%);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.ble-unassigned,
 .ble-note {
   margin: 0;
-  padding: 9px 20px;
+  padding: 10px 20px;
   color: var(--text-faint);
+  border-top: 1px solid var(--border);
   font-size: 11px;
   text-align: center;
 }
 
-.ble-unassigned {
-  color: var(--amber);
-  border-top: 1px solid var(--border);
-}
-
-.ble-note { border-top: 1px solid var(--border); }
-
 @media (max-width: 600px) {
   .ble-heatmap { grid-template-columns: 1fr; }
   .ble-header { align-items: flex-start; }
+  .ble-badge { max-width: 48%; }
 }

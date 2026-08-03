@@ -10,8 +10,9 @@ verify a device count, person count, distance, or coordinate.
 | Main Windows PC | Left side | `left-anchor` |
 | Second Windows laptop | Right side | `right-anchor` |
 
-Start Docker on the Main PC, then start `ble_scanner.py` natively on both
-computers using the commands in `../DOCKER_BLUETOOTH.md`.
+Start the Flask backend and Vite frontend on the Main PC, then start
+`ble_scanner.py` natively on both computers using the commands in
+`../NATIVE_BLUETOOTH.md`.
 
 ## Verify scanner output
 
@@ -50,11 +51,12 @@ four-second scan windows contribute to the EMA.
 ## Calibration
 
 If both computers are equally far from the same source but one consistently
-reports weaker RSSI, set its Docker calibration offset. For example:
+reports weaker RSSI, set the Backend calibration environment variable before
+starting Flask. For example in PowerShell:
 
-```text
-BLE_LEFT_RSSI_OFFSET=0
-BLE_RIGHT_RSSI_OFFSET=4
+```powershell
+$env:BLE_LEFT_RSSI_OFFSET="0"
+$env:BLE_RIGHT_RSSI_OFFSET="4"
 ```
 
-Then rerun `docker compose up --build -d` on the Main PC.
+Then restart `backend/run.py` on the Main PC.

@@ -6,16 +6,14 @@ import type {
   OccupancyPoint,
   OccupancyRange,
   RadarDevice,
-  BleDeviceState,
-  BleTrackingSummary,
-  BleZoneName,
+  BleSignalSummary,
   Co2Reading,
   Co2Point,
 } from "../data";
 
-// Docker serves the dashboard and proxies /api to Flask, so a relative URL
-// works from localhost and from another computer on the room network. Local
-// Vite development uses the matching proxy in vite.config.ts.
+// The native Vite server proxies /api to the local Flask backend. A relative
+// URL therefore works from localhost and from another computer on the room
+// network without embedding the Main PC address in the frontend bundle.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 const DEFAULT_POLL_MS = 1000;
@@ -93,9 +91,8 @@ export type OccupancyData = {
   co2History: Co2Point[];
   /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
   radarDevices: RadarDevice[];
-  bleDeviceCount: number;
-  bleZones: Record<BleZoneName, number>;
-  bleDevices: BleDeviceState[];
+  /** Relative RSSI intensity from the two Bluetooth anchors; never a count. */
+  bleSignal: BleSignalSummary;
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -103,6 +100,33 @@ export type OccupancyData = {
 
 const EMPTY_RANGES: Record<OccupancyRange, OccupancyPoint[]> = {
   "5m": [], "10m": [], "30m": [], "1H": [], "2H": [],
+};
+
+const EMPTY_BLE_SIGNAL: BleSignalSummary = {
+  measurement: "relative_bluetooth_signal_intensity",
+  zones: {
+    left: {
+      anchor_id: "left-anchor",
+      zone: "left",
+      status: "offline",
+      average_rssi: null,
+      signal_score: null,
+      last_seen_at: null,
+      calibration_offset_db: 0,
+    },
+    right: {
+      anchor_id: "right-anchor",
+      zone: "right",
+      status: "offline",
+      average_rssi: null,
+      signal_score: null,
+      last_seen_at: null,
+      calibration_offset_db: 0,
+    },
+  },
+  stronger_zone: null,
+  anchor_timeout_seconds: 15,
+  ema_alpha: 0.3,
 };
 
 const initialState: OccupancyData = {
@@ -125,9 +149,7 @@ const initialState: OccupancyData = {
   co2DeviceId: null,
   co2History: [],
   radarDevices: [],
-  bleDeviceCount: 0,
-  bleZones: { left: 0, right: 0 },
-  bleDevices: [],
+  bleSignal: EMPTY_BLE_SIGNAL,
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -230,20 +252,20 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
 
     async function fetchLatest() {
       try {
-        const [statusRes, radarRes, eventsRes, bleDevicesRes] = await Promise.all([
+        const [statusRes, radarRes, eventsRes, bleSignalRes] = await Promise.all([
           fetch(`${API_BASE}/occupancy/status`),
           fetch(`${API_BASE}/radar/latest`),
           fetch(`${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`),
-          fetch(`${API_BASE}/bluetooth/devices`),
+          fetch(`${API_BASE}/bluetooth/signal-strength`),
         ]);
 
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
         // Do not fail the other sensor dashboard if only BLE is unavailable.
-        let bleSummary: BleTrackingSummary | null = null;
-        if (bleDevicesRes.ok) {
-          bleSummary = await bleDevicesRes.json();
+        let bleSignal: BleSignalSummary = EMPTY_BLE_SIGNAL;
+        if (bleSignalRes.ok) {
+          bleSignal = await bleSignalRes.json();
         }
 
         const status: OccupancyStatus = await statusRes.json();
@@ -296,16 +318,7 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
           co2DeviceId,
           co2History,
           radarDevices: radarJson.devices ?? [],
-          bleDeviceCount:
-            bleSummary?.total_active_devices
-            ?? status.bluetooth_device_count
-            ?? status.bluetooth_tag_count
-            ?? 0,
-          bleZones: {
-            left: bleSummary?.zones.left.count ?? status.bluetooth_zones?.left ?? 0,
-            right: bleSummary?.zones.right.count ?? status.bluetooth_zones?.right ?? 0,
-          },
-          bleDevices: bleSummary?.devices ?? bleSummary?.tags ?? [],
+          bleSignal,
           lastUpdated: new Date(),
           isLive: true,
           error: null,
