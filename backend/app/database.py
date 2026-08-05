@@ -112,6 +112,28 @@ CREATE TABLE IF NOT EXISTS bluetooth_readings (
     received_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS occupancy_ground_truth (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id         TEXT    NOT NULL DEFAULT 'K17-101',
+    occupancy_count INTEGER NOT NULL CHECK(occupancy_count >= 0),
+    observed_at     TEXT    NOT NULL,
+    source          TEXT,
+    created_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (room_id, observed_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_occupancy_events_received_at
+    ON occupancy_events(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_radar_readings_received_at
+    ON radar_readings(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_environment_readings_received_at
+    ON environment_readings(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_ground_truth_room_time
+    ON occupancy_ground_truth(room_id, observed_at);
+
 CREATE INDEX IF NOT EXISTS idx_bluetooth_tag_time
     ON bluetooth_readings(tag_id, received_at);
 
