@@ -144,15 +144,15 @@
   color: var(--blue);
 }
 
-.zone-badge-centre {
-  background: var(--signal-dim);
-  color: var(--signal);
-}
-
 .zone-badge-back,
 .zone-badge-unknown {
   background: var(--neutral-dim);
   color: var(--text-faint);
+}
+
+.heat-glow {
+  pointer-events: none;
+  transition: opacity 0.4s ease;
 }
 
 .ble-list {
