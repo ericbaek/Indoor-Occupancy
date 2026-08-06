@@ -5,3 +5,7 @@ pytest
 requests
 pyserial
 bleak
+pandas
+openpyxl
+scikit-learn
+joblib
