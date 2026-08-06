@@ -89,24 +89,3 @@ def get_signal_strength():
 @ble_api.get("/zones")
 def get_zones_alias():
     return jsonify(ble_service.get_signal_summary()), 200
-
-
-def _removed_feature_response():
-    return jsonify({
-        "error": "Bluetooth device counting and positioning have been removed",
-        "use": "/api/bluetooth/signal-strength",
-    }), 410
-
-
-@ble_api.get("/count")
-@ble_api.get("/devices")
-@ble_api.get("/tags")
-def removed_count_endpoints():
-    return _removed_feature_response()
-
-
-@ble_api.get("/state/<device_id>")
-@ble_api.get("/position/<device_id>")
-def removed_device_endpoints(device_id: str):
-    del device_id
-    return _removed_feature_response()

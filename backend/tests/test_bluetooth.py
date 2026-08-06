@@ -200,10 +200,9 @@ def test_zones_alias_returns_same_shape(client):
         "/api/bluetooth/position/BT-01",
     ],
 )
-def test_removed_count_and_position_endpoints_return_gone(client, path):
+def test_removed_count_and_position_endpoints_are_not_registered(client, path):
     response = client.get(path)
-    assert response.status_code == 410
-    assert response.get_json()["use"] == "/api/bluetooth/signal-strength"
+    assert response.status_code == 404
 
 
 def test_occupancy_status_no_longer_exposes_bluetooth_counts(client):

@@ -122,7 +122,7 @@ function App() {
             </section>
 
             <section className="mid-grid">
-              <OccupancyChart data={data.occupancySeries} capacity={40} />
+              <OccupancyChart dataByRange={data.occupancySeriesByRange} capacity={40} />
               <RadarScope targets={data.radarTargets} />
             </section>
 
@@ -136,7 +136,14 @@ function App() {
               error={mlPrediction.error}
             />
 
-            <BleTracker />
+            <BleTracker 
+              tagCount={data.bleTagCount} 
+              zones={data.bleZones} 
+              positions={data.blePositions} 
+              tagsFull={data.bleTagsFull} 
+              units={preferences.units}
+            />
+
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
@@ -158,6 +165,7 @@ function App() {
               lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
               lastOccupancyEventAt={data.lastOccupancyEventAt}
               lastEventType={data.events[0]?.event ?? null}
+              bleTagsFull={data.bleTagsFull}
             />
           </section>
         )}

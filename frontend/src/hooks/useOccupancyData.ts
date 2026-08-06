@@ -4,23 +4,54 @@ import type {
   OccupancyStatus,
   OccupancyEvent,
   OccupancyPoint,
+  OccupancyRange,
   RadarDevice,
+  BlePosition,
   Co2Reading,
   Co2Point,
 } from "../data";
-import {
-  appendOccupancyPoint,
-  MAX_OCCUPANCY_HISTORY_MS,
-  resolveOccupancyTimestamp,
-} from "../lib/occupancyHistory";
 
-// Vite proxies /api to Flask during native development.
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+// Point this at your Flask backend. Override with a Vite env var
+// (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
 const DEFAULT_POLL_MS = 1000;
 
-// Recent events still power the Sensors page's latest-event details. The
-// occupancy chart uses status snapshots instead of reconstructing this list.
+// How far back each range looks, and how many points to plot across that
+// window. Bucketing (rather than plotting raw events) smooths the line even
+// with just a handful of entries, and gives every range a value even in the
+// gaps between real events.
+const RANGE_CONFIG: Record<OccupancyRange, { windowMs: number; buckets: number; label: (d: Date) => string }> = {
+  "5m": {
+    windowMs: 5 * 60 * 1000,
+    buckets: 10, // 30s per bucket
+    label: (d) => d.toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+  },
+  "10m": {
+    windowMs: 10 * 60 * 1000,
+    buckets: 10, // 1min per bucket
+    label: (d) => d.toLocaleTimeString([], { minute: "2-digit", second: "2-digit" }),
+  },
+  "30m": {
+    windowMs: 30 * 60 * 1000,
+    buckets: 15, // 2min per bucket
+    label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  },
+  "1H": {
+    windowMs: 60 * 60 * 1000,
+    buckets: 12, // 5min per bucket
+    label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  },
+  "2H": {
+    windowMs: 2 * 60 * 60 * 1000,
+    buckets: 12, // 10min per bucket
+    label: (d) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  },
+};
+
+// Fetch enough history to comfortably fill the widest window (2H) with
+// real events. The backend only supports a flat `limit`, not a time-range
+// filter, so we over-fetch and bucket client-side.
 const EVENTS_FETCH_LIMIT = 500;
 
 // The co2/history endpoint caps at 200 server-side; 100 is plenty to fill
@@ -38,8 +69,10 @@ export type OccupancyData = {
   radarTargets: RadarTarget[];
   /** Recent entry/exit events, newest first, straight from the backend. */
   events: OccupancyEvent[];
-  /** Successful live status readings from the last two hours, oldest first. */
+  /** Occupancy trend built from real events (running total, one point per event), raw/unbucketed. */
   occupancySeries: OccupancyPoint[];
+  /** Same real event history, bucketed per range window — powers all 5 chart tabs (5m/10m/30m/1H/2H). */
+  occupancySeriesByRange: Record<OccupancyRange, OccupancyPoint[]>;
   lastOccupancyEventAt: string | null;
   lastRadarUpdateAt: string | null;
   /** When the current PIR/radar mismatch began, or null if none is active. */
@@ -57,9 +90,17 @@ export type OccupancyData = {
   co2History: Co2Point[];
   /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
   radarDevices: RadarDevice[];
+  bleTagCount: number;
+  bleZones: Record<string, number>;
+  blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
+  bleTagsFull: BlePosition[];
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
+};
+
+const EMPTY_RANGES: Record<OccupancyRange, OccupancyPoint[]> = {
+  "5m": [], "10m": [], "30m": [], "1H": [], "2H": [],
 };
 
 const initialState: OccupancyData = {
@@ -70,6 +111,7 @@ const initialState: OccupancyData = {
   radarTargets: [],
   events: [],
   occupancySeries: [],
+  occupancySeriesByRange: EMPTY_RANGES,
   lastOccupancyEventAt: null,
   lastRadarUpdateAt: null,
   mismatchStartedAt: null,
@@ -81,6 +123,10 @@ const initialState: OccupancyData = {
   co2DeviceId: null,
   co2History: [],
   radarDevices: [],
+  bleTagCount: 0,
+  bleZones: {},
+  blePositions: [],
+  bleTagsFull: [],
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -103,6 +149,14 @@ function formatTimeLabel(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function buildOccupancySeries(eventsChronological: OccupancyEvent[]): OccupancyPoint[] {
+  let running = 0;
+  return eventsChronological.map((e) => {
+    running = Math.max(0, running + e.count_change);
+    return { t: formatTimeLabel(e.received_at), count: running };
+  });
+}
+
 function buildCo2Series(readingsNewestFirst: Co2Reading[]): Co2Point[] {
   return [...readingsNewestFirst]
     .reverse()
@@ -117,6 +171,49 @@ function pickHighestCo2Device(devices: Co2Reading[]): string | null {
   return best?.device_id ?? null;
 }
 
+type CumPoint = { ts: number; value: number };
+
+function buildCumulative(eventsChronological: OccupancyEvent[]): CumPoint[] {
+  let running = 0;
+  return eventsChronological.map((e) => {
+    running = Math.max(0, running + e.count_change);
+    return { ts: new Date(e.received_at).getTime(), value: running };
+  });
+}
+
+/** Occupancy at time `t`, i.e. the value of the last event at or before `t` (0 if none yet). */
+function valueAt(cumAsc: CumPoint[], t: number): number {
+  let val = 0;
+  for (const p of cumAsc) {
+    if (p.ts > t) break;
+    val = p.value;
+  }
+  return val;
+}
+
+function buildRangeSeries(cumAsc: CumPoint[], range: OccupancyRange): OccupancyPoint[] {
+  const { windowMs, buckets, label } = RANGE_CONFIG[range];
+  const now = Date.now();
+  const start = now - windowMs;
+  const step = windowMs / buckets;
+
+  const points: OccupancyPoint[] = [];
+  for (let i = 0; i <= buckets; i++) {
+    const t = start + step * i;
+    points.push({ t: label(new Date(t)), count: valueAt(cumAsc, t) });
+  }
+  return points;
+}
+
+function buildAllRangeSeries(eventsChronological: OccupancyEvent[]): Record<OccupancyRange, OccupancyPoint[]> {
+  const cumAsc = buildCumulative(eventsChronological);
+  const out = {} as Record<OccupancyRange, OccupancyPoint[]>;
+  (Object.keys(RANGE_CONFIG) as OccupancyRange[]).forEach((range) => {
+    out[range] = buildRangeSeries(cumAsc, range);
+  });
+  return out;
+}
+
 /**
  * Single source of truth for live occupancy/radar data, polled from the
  * real Flask backend. Rooms, sensor nodes, and alerts are
@@ -125,78 +222,90 @@ function pickHighestCo2Device(devices: Co2Reading[]): string | null {
  */
 export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyData {
   const [state, setState] = useState<OccupancyData>(initialState);
-  const requestSequenceRef = useRef(0);
-  const appliedStatusRequestRef = useRef(0);
-  const appliedAncillaryRequestRef = useRef(0);
+  const cancelledRef = useRef(false);
 
   useEffect(() => {
-    let disposed = false;
-    const controllers = new Set<AbortController>();
+    cancelledRef.current = false;
 
-    function isAborted(error: unknown, signal: AbortSignal): boolean {
-      return signal.aborted || (error instanceof DOMException && error.name === "AbortError");
-    }
-
-    async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
-      const response = await fetch(url, { signal });
-      if (!response.ok) throw new Error(`${url}: ${response.status}`);
-      return response.json() as Promise<T>;
-    }
-
-    async function updateOccupancyStatus(requestId: number, signal: AbortSignal) {
+    async function fetchLatest() {
       try {
-        const status = await getJson<OccupancyStatus>(`${API_BASE}/occupancy/status`, signal);
-        const receivedAt = Date.now();
-        if (!Number.isFinite(status.occupancy)) {
-          throw new Error("occupancy/status: invalid occupancy value");
-        }
-        const resolvedTimestamp = resolveOccupancyTimestamp(status, receivedAt);
-        if (resolvedTimestamp < receivedAt - MAX_OCCUPANCY_HISTORY_MS) {
-          throw new Error("occupancy/status: stale reading timestamp");
-        }
-        // A future server clock cannot produce a visible point on an axis ending now.
-        const timestamp = Math.min(resolvedTimestamp, receivedAt);
-        if (
-          disposed ||
-          signal.aborted ||
-          requestId < appliedStatusRequestRef.current
-        ) return;
+        const [statusRes, radarRes, eventsRes, bleTagsRes] = await Promise.all([
+          fetch(`${API_BASE}/occupancy/status`),
+          fetch(`${API_BASE}/radar/latest`),
+          fetch(`${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`),
+          fetch(`${API_BASE}/bluetooth/tags`),
+        ]);
 
-        appliedStatusRequestRef.current = requestId;
+        if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
+        if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
+        if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
+        // don't fail if BLE is down, just log
+        let bleTagsFull: BlePosition[] = [];
+        if (bleTagsRes.ok) {
+           const bleJson = await bleTagsRes.json();
+           bleTagsFull = bleJson.tags || [];
+        }
 
-        setState((previous) => {
-          const latestTimestamp = previous.occupancySeries.at(-1)?.timestamp;
-          if (latestTimestamp !== undefined && timestamp < latestTimestamp) {
-            return previous;
+        const status: OccupancyStatus = await statusRes.json();
+        const radarJson: { devices: RadarDevice[] } = await radarRes.json();
+        const eventsJson: { events: OccupancyEvent[] } = await eventsRes.json();
+
+        let co2DeviceId: string | null = null;
+        let co2History: Co2Point[] = [];
+        try {
+          const co2LatestRes = await fetch(`${API_BASE}/co2/latest`);
+          if (co2LatestRes.ok) {
+            const co2LatestJson: { devices: Co2Reading[] } = await co2LatestRes.json();
+            co2DeviceId = pickHighestCo2Device(co2LatestJson.devices ?? []);
+            if (co2DeviceId) {
+              const co2HistRes = await fetch(
+                `${API_BASE}/co2/history/${encodeURIComponent(co2DeviceId)}?limit=${CO2_HISTORY_LIMIT}`
+              );
+              if (co2HistRes.ok) {
+                const co2HistJson: { readings: Co2Reading[] } = await co2HistRes.json();
+                co2History = buildCo2Series(co2HistJson.readings ?? []);
+              }
+            }
           }
+        } catch (co2Err) {
+          console.error("useOccupancyData: co2 history lookup failed", co2Err);
+        }
 
-          return {
-            ...previous,
-            occupancy: status.occupancy,
-            status: status.status,
-            radarPresence: status.radar_presence,
-            radarTargetCount: status.radar_target_count,
-            occupancySeries: appendOccupancyPoint(
-              previous.occupancySeries,
-              { timestamp, count: status.occupancy },
-              receivedAt,
-            ),
-            lastOccupancyEventAt: status.last_occupancy_event_at,
-            lastRadarUpdateAt: status.last_radar_update_at,
-            mismatchStartedAt: status.mismatch_started_at,
-            co2Ppm: status.co2_ppm ?? null,
-            co2Level: status.co2_level ?? null,
-            temperatureC: status.temperature_c ?? null,
-            humidityPercent: status.humidity_percent ?? null,
-            lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
-            lastUpdated: new Date(receivedAt),
-            isLive: true,
-            error: null,
-          };
+        if (cancelledRef.current) return;
+
+        // Backend returns newest-first; flip to chronological once, reuse everywhere.
+        const chronological = [...(eventsJson.events ?? [])].reverse();
+
+        setState({
+          occupancy: status.occupancy,
+          status: status.status,
+          radarPresence: status.radar_presence,
+          radarTargetCount: status.radar_target_count,
+          radarTargets: mapRadarDevicesToTargets(radarJson.devices ?? []),
+          events: eventsJson.events ?? [],
+          occupancySeries: buildOccupancySeries(chronological),
+          occupancySeriesByRange: buildAllRangeSeries(chronological),
+          lastOccupancyEventAt: status.last_occupancy_event_at,
+          lastRadarUpdateAt: status.last_radar_update_at,
+          mismatchStartedAt: status.mismatch_started_at,
+          co2Ppm: status.co2_ppm ?? null,
+          co2Level: status.co2_level ?? null,
+          temperatureC: status.temperature_c ?? null,
+          humidityPercent: status.humidity_percent ?? null,
+          lastEnvironmentUpdateAt: status.last_environment_update_at ?? null,
+          co2DeviceId,
+          co2History,
+          radarDevices: radarJson.devices ?? [],
+          bleTagCount: status.bluetooth_tag_count ?? 0,
+          bleZones: status.bluetooth_zones ?? {},
+          blePositions: status.bluetooth_positions ?? [],
+          bleTagsFull,
+          lastUpdated: new Date(),
+          isLive: true,
+          error: null,
         });
       } catch (err) {
-        if (disposed || isAborted(err, signal)) return;
-        if (requestId < appliedStatusRequestRef.current) return;
+        if (cancelledRef.current) return;
         setState((prev) => ({
           ...prev,
           isLive: false,
@@ -206,85 +315,11 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
       }
     }
 
-    async function fetchCo2Data(signal: AbortSignal) {
-      const latest = await getJson<{ devices: Co2Reading[] }>(`${API_BASE}/co2/latest`, signal);
-      const co2DeviceId = pickHighestCo2Device(latest.devices ?? []);
-      if (!co2DeviceId) return { co2DeviceId: null, co2History: [] as Co2Point[] };
-
-      const history = await getJson<{ readings: Co2Reading[] }>(
-        `${API_BASE}/co2/history/${encodeURIComponent(co2DeviceId)}?limit=${CO2_HISTORY_LIMIT}`,
-        signal,
-      );
-      return {
-        co2DeviceId,
-        co2History: buildCo2Series(history.readings ?? []),
-      };
-    }
-
-    async function updateAncillaryData(requestId: number, signal: AbortSignal) {
-      const [radar, events, co2] = await Promise.allSettled([
-        getJson<{ devices: RadarDevice[] }>(`${API_BASE}/radar/latest`, signal),
-        getJson<{ events: OccupancyEvent[] }>(
-          `${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`,
-          signal,
-        ),
-        fetchCo2Data(signal),
-      ]);
-
-      if (
-        disposed ||
-        signal.aborted ||
-        requestId < appliedAncillaryRequestRef.current
-      ) return;
-
-      appliedAncillaryRequestRef.current = requestId;
-      setState((previous) => ({
-        ...previous,
-        radarTargets:
-          radar.status === "fulfilled"
-            ? mapRadarDevicesToTargets(radar.value.devices ?? [])
-            : previous.radarTargets,
-        radarDevices:
-          radar.status === "fulfilled"
-            ? radar.value.devices ?? []
-            : previous.radarDevices,
-        events:
-          events.status === "fulfilled"
-            ? events.value.events ?? []
-            : previous.events,
-        co2DeviceId:
-          co2.status === "fulfilled"
-            ? co2.value.co2DeviceId
-            : previous.co2DeviceId,
-        co2History:
-          co2.status === "fulfilled"
-            ? co2.value.co2History
-            : previous.co2History,
-      }));
-    }
-
-    async function fetchLatest() {
-      const requestId = ++requestSequenceRef.current;
-      const controller = new AbortController();
-      controllers.add(controller);
-
-      try {
-        await Promise.all([
-          updateOccupancyStatus(requestId, controller.signal),
-          updateAncillaryData(requestId, controller.signal),
-        ]);
-      } finally {
-        controllers.delete(controller);
-      }
-    }
-
     fetchLatest();
     const id = setInterval(fetchLatest, pollMs);
     return () => {
-      disposed = true;
+      cancelledRef.current = true;
       clearInterval(id);
-      controllers.forEach((controller) => controller.abort());
-      controllers.clear();
     };
   }, [pollMs]);
 

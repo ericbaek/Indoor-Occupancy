@@ -20,10 +20,7 @@ export type Alert = {
   time: string;
 };
 
-export type OccupancyPoint = {
-  timestamp: number;
-  count: number;
-};
+export type OccupancyPoint = { t: string; count: number };
 
 export type Co2Point = { t: string; ppm: number };
 
@@ -68,10 +65,34 @@ export type OccupancyStatus = {
   temperature_c?: number | null;
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;
-  /** Optional per-snapshot API timestamps; receipt time is used when absent. */
-  timestamp?: string | number | null;
-  received_at?: string | null;
-  reading_at?: string | null;
+  bluetooth_tag_count?: number;
+  bluetooth_zones?: Record<string, number>;
+  bluetooth_positions?: Array<{
+    tag_id: string;
+    x: number;
+    y: number;
+    label: string;
+  }>;
+};
+
+export type BlePosition = {
+  tag_id: string;
+  status: "inside" | "outside" | "unknown";
+  zone: string;
+  stable_zone: string;
+  position: {
+    x: number;
+    y: number;
+    unit: string;
+    method: string;
+    label: string;
+    quality: number;
+  } | null;
+  strongest_scanner: string | null;
+  confidence_db: number;
+  scanner_rssi: Record<string, number>;
+  estimated_distances: Record<string, number>;
+  last_seen_at: string;
 };
 
 export type Co2Reading = {
@@ -114,6 +135,7 @@ export const alerts: Alert[] = [
   { id: "a1", kind: "capacity", title: "Over capacity", detail: "K17-103 is over capacity (44/40)", time: "10:20 AM" },
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
 ];
+
 // ---------------------------------------------------------------------------
 // Reports — mock, pending backend historical-query support.
 //

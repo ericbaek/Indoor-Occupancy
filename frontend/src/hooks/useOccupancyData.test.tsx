@@ -37,6 +37,7 @@ function installFetchMock(occupancies: number[]) {
     }
     if (url.endsWith("/radar/latest")) return jsonResponse({ devices: [] });
     if (url.includes("/occupancy/events")) return jsonResponse({ events: [] });
+    if (url.endsWith("/bluetooth/tags")) return jsonResponse({ tags: [] });
     if (url.endsWith("/co2/latest")) return jsonResponse({ devices: [] });
     throw new Error(`Unexpected request: ${url}`);
   });
@@ -122,6 +123,7 @@ describe("useOccupancyData live history", () => {
         return jsonResponse({ devices: [{ target_count: 3, targets: [] }] });
       }
       if (url.includes("/occupancy/events")) return jsonResponse({ events: [] });
+      if (url.endsWith("/bluetooth/tags")) return jsonResponse({ tags: [] });
       if (url.endsWith("/co2/latest")) return jsonResponse({ devices: [] });
       throw new Error(`Unexpected request: ${url}`);
     });
@@ -151,6 +153,7 @@ describe("useOccupancyData live history", () => {
       }
       if (url.endsWith("/radar/latest")) return Promise.resolve(jsonResponse({ devices: [] }));
       if (url.includes("/occupancy/events")) return Promise.resolve(jsonResponse({ events: [] }));
+      if (url.endsWith("/bluetooth/tags")) return Promise.resolve(jsonResponse({ tags: [] }));
       if (url.endsWith("/co2/latest")) return Promise.resolve(jsonResponse({ devices: [] }));
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     }));
@@ -189,6 +192,7 @@ describe("useOccupancyData live history", () => {
       }
       if (url.endsWith("/radar/latest")) return jsonResponse({ devices: [] });
       if (url.includes("/occupancy/events")) return jsonResponse({ events: [] });
+      if (url.endsWith("/bluetooth/tags")) return jsonResponse({ tags: [] });
       if (url.endsWith("/co2/latest")) return jsonResponse({ devices: [] });
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -217,6 +221,7 @@ describe("useOccupancyData live history", () => {
       }
       if (url.endsWith("/radar/latest")) return jsonResponse({ devices: [] });
       if (url.includes("/occupancy/events")) return jsonResponse({ events: [] });
+      if (url.endsWith("/bluetooth/tags")) return jsonResponse({ tags: [] });
       if (url.endsWith("/co2/latest")) return jsonResponse({ devices: [] });
       throw new Error(`Unexpected request: ${url}`);
     }));
