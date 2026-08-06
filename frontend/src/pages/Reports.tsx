@@ -1,60 +1,82 @@
-import { Clock3, Users, TrendingUp, Database, Download } from "lucide-react";
+import { Clock3, Users, TrendingUp, Database, Download, RefreshCw } from "lucide-react";
 import StatCard from "../components/StatCard";
-import { reportSummary, evaluationMetrics, reportExports } from "../data";
+import { useReportsData, REPORT_RANGES, type ReportRange } from "../hooks/useReportsData";
+import { useState } from "react";
 import "./Reports.css";
 
 /**
- * Reports page — MOCK DATA, pending backend historical-query support.
+ * Reports page — live data from /api/reports/*.
  *
- * There is currently no /api/reports/* endpoint; evaluationMetrics,
- * reportSummary, and reportExports are hand-authored fixtures in data.ts
- * shaped to match the contract we've proposed to backend (see the request
- * doc). Once /api/reports/* exists, swap the imports below for a fetch
- * inside a useReportsData hook (mirroring useOccupancyData) — the JSX
- * doesn't need to change since field names already match the proposed
- * response shape.
+ * Fetches summary stats, fusion evaluation metrics, and export listings for
+ * the selected range (24h / 7d / 30d / 90d) via useReportsData, and links
+ * directly to the backend's file-download endpoint for each export.
  */
 export default function Reports() {
+  const [range, setRange] = useState<ReportRange>("7d");
+  const { summary, evaluationMetrics, exports, isLoading, error, downloadUrl, refresh } =
+    useReportsData(range);
+
   return (
     <div className="reports-page">
-      <div className="reports-mock-banner">
-        Showing sample data — historical backend queries aren't live yet. See the API contract shared with backend for the expected shape.
+      <div className="reports-toolbar">
+        <div className="reports-range-toggle">
+          {REPORT_RANGES.map((r) => (
+            <button
+              key={r.value}
+              className={`reports-range-btn${r.value === range ? " reports-range-btn-active" : ""}`}
+              onClick={() => setRange(r.value)}
+              aria-pressed={r.value === range}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <button className="reports-refresh-btn" onClick={refresh} disabled={isLoading}>
+          <RefreshCw size={13} strokeWidth={2.25} className={isLoading ? "reports-spin" : ""} />
+          Refresh
+        </button>
       </div>
+
+      {error && (
+        <div className="reports-error-banner">
+          Couldn't load report data: {error}
+        </div>
+      )}
 
       <div className="reports-stat-grid">
         <StatCard
           icon={<Clock3 size={16} strokeWidth={2} />}
           label="Hours tracked"
-          value={reportSummary.totalHoursTracked.toFixed(1)}
+          value={summary ? summary.totalHoursTracked.toFixed(1) : "—"}
           unit="hrs"
-          sub={reportSummary.rangeLabel}
+          sub={summary?.rangeLabel ?? "—"}
           tone="blue"
-          tag="Mock"
+          tag={isLoading ? "Loading" : "Live"}
         />
         <StatCard
           icon={<Users size={16} strokeWidth={2} />}
           label="Avg occupancy"
-          value={reportSummary.avgOccupancy.toFixed(1)}
-          sub={reportSummary.rangeLabel}
+          value={summary ? summary.avgOccupancy.toFixed(1) : "—"}
+          sub={summary?.rangeLabel ?? "—"}
           tone="signal"
-          tag="Mock"
+          tag={isLoading ? "Loading" : "Live"}
         />
         <StatCard
           icon={<TrendingUp size={16} strokeWidth={2} />}
           label="Peak occupancy"
-          value={String(reportSummary.peakOccupancy)}
-          sub={reportSummary.peakAt}
+          value={summary ? String(summary.peakOccupancy) : "—"}
+          sub={summary?.peakAt ?? "—"}
           tone="amber"
-          tag="Mock"
+          tag={isLoading ? "Loading" : "Live"}
         />
         <StatCard
           icon={<Database size={16} strokeWidth={2} />}
           label="Data completeness"
-          value={String(reportSummary.dataCompletenessPercent)}
+          value={summary ? String(summary.dataCompletenessPercent) : "—"}
           unit="%"
-          sub={reportSummary.rangeLabel}
+          sub={summary?.rangeLabel ?? "—"}
           tone="neutral"
-          tag="Mock"
+          tag={isLoading ? "Loading" : "Live"}
         />
       </div>
 
@@ -68,36 +90,44 @@ export default function Reports() {
           </div>
         </div>
 
-        <table className="reports-table">
-          <thead>
-            <tr>
-              <th>Model</th>
-              <th className="num">MAE</th>
-              <th className="num">RMSE</th>
-              <th className="num">Fusion gain</th>
-              <th className="num">Samples</th>
-            </tr>
-          </thead>
-          <tbody>
-            {evaluationMetrics.map((m) => (
-              <tr key={m.model}>
-                <td>{m.model}</td>
-                <td className="num">{m.mae.toFixed(2)}</td>
-                <td className="num">{m.rmse.toFixed(2)}</td>
-                <td className="num">
-                  {m.fusionGainPercent === null ? (
-                    <span className="reports-gain-baseline">baseline</span>
-                  ) : (
-                    <span className="reports-gain-positive">
-                      &minus;{m.fusionGainPercent.toFixed(1)}% MAE
-                    </span>
-                  )}
-                </td>
-                <td className="num">{m.sampleCount}</td>
+        {evaluationMetrics.length === 0 ? (
+          <div className="reports-empty-state">
+            {isLoading
+              ? "Loading evaluation metrics…"
+              : "No ground-truth samples in this range yet — evaluation metrics need logged occupancy_ground_truth data to compare against."}
+          </div>
+        ) : (
+          <table className="reports-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th className="num">MAE</th>
+                <th className="num">RMSE</th>
+                <th className="num">Fusion gain</th>
+                <th className="num">Samples</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {evaluationMetrics.map((m) => (
+                <tr key={m.model}>
+                  <td>{m.model}</td>
+                  <td className="num">{m.mae.toFixed(2)}</td>
+                  <td className="num">{m.rmse.toFixed(2)}</td>
+                  <td className="num">
+                    {m.fusionGainPercent === null ? (
+                      <span className="reports-gain-baseline">baseline</span>
+                    ) : (
+                      <span className="reports-gain-positive">
+                        &minus;{m.fusionGainPercent.toFixed(1)}% MAE
+                      </span>
+                    )}
+                  </td>
+                  <td className="num">{m.sampleCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="reports-section">
@@ -110,24 +140,30 @@ export default function Reports() {
           </div>
         </div>
 
-        {reportExports.map((r) => (
-          <div className="reports-export-row" key={r.id}>
-            <div>
-              <div className="reports-export-name">{r.name}</div>
-              <div className="reports-export-meta">
-                {r.room} &middot; {r.rangeLabel} &middot; generated{" "}
-                {new Date(r.generatedAt).toLocaleDateString()} &middot; {r.sizeKb} KB
+        {exports.length === 0 ? (
+          <div className="reports-empty-state">
+            {isLoading ? "Loading exports…" : "No exports available for this range."}
+          </div>
+        ) : (
+          exports.map((r) => (
+            <div className="reports-export-row" key={r.id}>
+              <div>
+                <div className="reports-export-name">{r.name}</div>
+                <div className="reports-export-meta">
+                  {r.room} &middot; {r.rangeLabel} &middot; generated{" "}
+                  {new Date(r.generatedAt).toLocaleDateString()} &middot; {r.sizeKb} KB
+                </div>
+              </div>
+              <div className="reports-export-actions">
+                <span className="reports-format-badge">{r.format.toUpperCase()}</span>
+                <a className="reports-download-btn" href={downloadUrl(r.id)}>
+                  <Download size={13} strokeWidth={2.25} />
+                  Download
+                </a>
               </div>
             </div>
-            <div className="reports-export-actions">
-              <span className="reports-format-badge">{r.format.toUpperCase()}</span>
-              <button className="reports-download-btn" disabled title="Wired up once backend export endpoint exists">
-                <Download size={13} strokeWidth={2.25} />
-                Download
-              </button>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
