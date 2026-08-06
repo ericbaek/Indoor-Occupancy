@@ -1,0 +1,121 @@
+.ml-forecast {
+  margin-top: 14px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+}
+
+.ml-forecast-empty {
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  color: var(--text-dim);
+}
+
+.ml-forecast-header,
+.ml-forecast-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.ml-forecast-header h2 {
+  margin: 2px 0 3px;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+
+.ml-forecast-header p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.ml-eyebrow {
+  color: var(--signal) !important;
+  font-family: var(--font-mono);
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ml-live-badge,
+.ml-dry-run {
+  border-radius: 999px;
+  background: var(--signal-dim);
+  color: var(--signal);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.ml-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ml-metric-grid article {
+  display: flex;
+  min-height: 105px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.ml-metric-grid article > span,
+.ml-metric-grid small {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.ml-metric-grid strong {
+  margin: 5px 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+}
+
+.ml-primary-metric strong {
+  color: var(--signal);
+  font-size: 34px;
+}
+
+.ml-safe { color: var(--signal); }
+.ml-danger { color: var(--red); }
+
+.ml-forecast-footer {
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.ml-forecast-footer > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.ml-forecast-footer > div span { color: var(--text-dim); }
+
+@media (max-width: 1050px) {
+  .ml-metric-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .ml-forecast-header,
+  .ml-forecast-footer { flex-direction: column; }
+  .ml-metric-grid { grid-template-columns: 1fr; }
+}

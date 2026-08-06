@@ -112,11 +112,61 @@ CREATE TABLE IF NOT EXISTS bluetooth_readings (
     received_at TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS occupancy_ground_truth (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id         TEXT    NOT NULL DEFAULT 'K17-101',
+    occupancy_count INTEGER NOT NULL CHECK(occupancy_count >= 0),
+    observed_at     TEXT    NOT NULL,
+    source          TEXT,
+    created_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (room_id, observed_at)
+);
+
+CREATE TABLE IF NOT EXISTS ml_predictions (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    window_start             TEXT    NOT NULL,
+    window_end               TEXT    NOT NULL,
+    prediction_time          TEXT    NOT NULL,
+    forecast_time            TEXT    NOT NULL,
+    predicted_occupancy      INTEGER NOT NULL,
+    predicted_ventilation    TEXT    NOT NULL,
+    overcrowding_risk        INTEGER NOT NULL,
+    empty_probability_30m    REAL,
+    empty_probability_60m    REAL,
+    confidence               REAL,
+    ble_activity_side        TEXT,
+    model_version            TEXT,
+    source                   TEXT    NOT NULL,
+    sensor_window_json       TEXT    NOT NULL,
+    prediction_json          TEXT    NOT NULL,
+    recommendation_json      TEXT    NOT NULL,
+    created_at               TEXT    NOT NULL,
+    UNIQUE (window_start, window_end)
+);
+
+CREATE INDEX IF NOT EXISTS idx_occupancy_events_received_at
+    ON occupancy_events(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_radar_readings_received_at
+    ON radar_readings(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_environment_readings_received_at
+    ON environment_readings(received_at);
+
+CREATE INDEX IF NOT EXISTS idx_ground_truth_room_time
+    ON occupancy_ground_truth(room_id, observed_at);
+
 CREATE INDEX IF NOT EXISTS idx_bluetooth_tag_time
     ON bluetooth_readings(tag_id, received_at);
 
 CREATE INDEX IF NOT EXISTS idx_bluetooth_scanner_time
     ON bluetooth_readings(scanner_id, received_at);
+
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_created_at
+    ON ml_predictions(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_window_end
+    ON ml_predictions(window_end);
 """
 
 
@@ -662,4 +712,124 @@ def cleanup_old_bluetooth_readings(retention_hours: float = 24.0) -> int:
     )
     db.commit()
     return cursor.rowcount
+
+
+def upsert_ml_prediction(
+    *,
+    sensor_window: dict[str, Any],
+    prediction: dict[str, Any],
+    recommendation: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    window_start = str(sensor_window["window_start"])
+    window_end = str(sensor_window["window_end"])
+    created_at = _utc_now()
+    empty_room = prediction.get("empty_room") or {}
+    overcrowding = prediction.get("overcrowding") or {}
+    values = (
+        window_start,
+        window_end,
+        str(prediction["prediction_time"]),
+        str(prediction["forecast_time"]),
+        int(prediction["predicted_occupancy"]),
+        str(prediction["predicted_ventilation"]),
+        int(bool(overcrowding.get("overcrowding_risk", False))),
+        _optional_float(empty_room.get("empty_probability_30m")),
+        _optional_float(empty_room.get("empty_probability")),
+        _optional_float(prediction.get("confidence")),
+        prediction.get("ble_activity_side"),
+        prediction.get("model_version"),
+        source,
+        json.dumps(sensor_window, sort_keys=True),
+        json.dumps(prediction, sort_keys=True),
+        json.dumps(recommendation, sort_keys=True),
+        created_at,
+    )
+    db = get_db()
+    try:
+        db.execute(
+            """
+            INSERT INTO ml_predictions (
+                window_start, window_end, prediction_time, forecast_time,
+                predicted_occupancy, predicted_ventilation,
+                overcrowding_risk, empty_probability_30m,
+                empty_probability_60m, confidence, ble_activity_side,
+                model_version, source, sensor_window_json, prediction_json,
+                recommendation_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(window_start, window_end) DO UPDATE SET
+                prediction_time       = excluded.prediction_time,
+                forecast_time         = excluded.forecast_time,
+                predicted_occupancy   = excluded.predicted_occupancy,
+                predicted_ventilation = excluded.predicted_ventilation,
+                overcrowding_risk     = excluded.overcrowding_risk,
+                empty_probability_30m = excluded.empty_probability_30m,
+                empty_probability_60m = excluded.empty_probability_60m,
+                confidence            = excluded.confidence,
+                ble_activity_side     = excluded.ble_activity_side,
+                model_version         = excluded.model_version,
+                source                = excluded.source,
+                sensor_window_json    = excluded.sensor_window_json,
+                prediction_json       = excluded.prediction_json,
+                recommendation_json   = excluded.recommendation_json,
+                created_at            = excluded.created_at
+            """,
+            values,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    row = db.execute(
+        """
+        SELECT * FROM ml_predictions
+        WHERE window_start = ? AND window_end = ?
+        """,
+        (window_start, window_end),
+    ).fetchone()
+    return _ml_prediction_row(row)
+
+
+def get_latest_ml_prediction() -> dict[str, Any] | None:
+    row = get_db().execute(
+        "SELECT * FROM ml_predictions ORDER BY window_end DESC, id DESC LIMIT 1"
+    ).fetchone()
+    return _ml_prediction_row(row) if row is not None else None
+
+
+def get_ml_predictions(limit: int = 50) -> list[dict[str, Any]]:
+    limit = min(max(1, limit), 200)
+    rows = get_db().execute(
+        """
+        SELECT * FROM ml_predictions
+        ORDER BY window_end DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [_ml_prediction_row(row) for row in rows]
+
+
+def _ml_prediction_row(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    result["overcrowding_risk"] = bool(result["overcrowding_risk"])
+    for json_column, output_name in (
+        ("sensor_window_json", "sensor_window"),
+        ("prediction_json", "prediction"),
+        ("recommendation_json", "recommendation"),
+    ):
+        raw = result.pop(json_column)
+        try:
+            result[output_name] = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            result[output_name] = {}
+    return result
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)
 

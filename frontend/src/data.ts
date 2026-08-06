@@ -21,7 +21,6 @@ export type Alert = {
 };
 
 export type OccupancyPoint = {
-  /** Epoch milliseconds for the actual API reading (or its receipt time). */
   timestamp: number;
   count: number;
 };

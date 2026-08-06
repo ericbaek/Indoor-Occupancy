@@ -1,0 +1,29 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5001:5000"
+    environment:
+      FLASK_DEBUG: "true"
+      DATABASE_PATH: /app/instance/occupancy.db
+      CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - ./backend:/app
+      - backend-data:/app/instance
+
+  frontend:
+    build: ./frontend
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:5001/api
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+
+volumes:
+  backend-data:
+  frontend-node-modules:

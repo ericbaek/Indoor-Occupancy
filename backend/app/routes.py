@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
-from datetime import datetime, timezone
+import math
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 from .database import (
     get_db,
@@ -735,3 +740,388 @@ def get_occupancy_status():
         "last_environment_update_at": last_environment_update_at,
         "mismatch_started_at": _mismatch_started_at,
     }), 200
+
+
+_REPORT_RANGES = {
+    "24h": ("Last 24 hours", timedelta(hours=24)),
+    "7d": ("Last 7 days", timedelta(days=7)),
+    "30d": ("Last 30 days", timedelta(days=30)),
+    "90d": ("Last 90 days", timedelta(days=90)),
+}
+_REPORT_ROOM = os.environ.get("REPORT_ROOM_ID", "K17-101")
+_REPORT_TIMEZONE = os.environ.get("REPORT_TIMEZONE", "Australia/Sydney")
+_REPORT_BUCKET_SECONDS = 300
+_REPORT_RADAR_TOLERANCE = 15
+
+
+def _report_window():
+    token = request.args.get("range", "7d").strip().lower()
+    if token not in _REPORT_RANGES:
+        valid = ", ".join(_REPORT_RANGES)
+        raise ValueError(f"Unsupported range '{token}'. Supported ranges: {valid}")
+    label, duration = _REPORT_RANGES[token]
+    end = datetime.now(timezone.utc)
+    return token, label, end - duration, end
+
+
+def _report_time(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _report_zone():
+    try:
+        return ZoneInfo(_REPORT_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _report_occupancy(start, end):
+    rows = get_db().execute(
+        """
+        SELECT count_change, received_at
+        FROM occupancy_events
+        WHERE received_at <= ?
+        ORDER BY received_at, id
+        """,
+        (end.isoformat(),),
+    ).fetchall()
+    current = 0
+    peak = 0
+    peak_at = None
+    cursor = start
+    weighted_seconds = 0.0
+
+    for row in rows:
+        received_at = _report_time(row["received_at"])
+        if received_at is None or received_at > end:
+            continue
+        if received_at < start:
+            current = max(0, current + int(row["count_change"]))
+            peak = current
+            peak_at = start if current else None
+            continue
+        weighted_seconds += current * max(0.0, (received_at - cursor).total_seconds())
+        cursor = max(cursor, received_at)
+        current = max(0, current + int(row["count_change"]))
+        if current > peak:
+            peak = current
+            peak_at = received_at
+
+    weighted_seconds += current * max(0.0, (end - cursor).total_seconds())
+    duration_seconds = max(1.0, (end - start).total_seconds())
+    return {
+        "avg": round(weighted_seconds / duration_seconds, 1),
+        "peak": peak,
+        "peak_at": peak_at,
+    }
+
+
+def _report_coverage(start, end):
+    start_epoch = int(start.timestamp())
+    end_epoch = int(end.timestamp())
+    timestamps = set()
+    db = get_db()
+    for table in ("occupancy_events", "radar_readings", "environment_readings"):
+        rows = db.execute(
+            f"""
+            SELECT CAST(strftime('%s', received_at) AS INTEGER) AS epoch
+            FROM {table}
+            WHERE CAST(strftime('%s', received_at) AS INTEGER) >= ?
+              AND CAST(strftime('%s', received_at) AS INTEGER) < ?
+            """,
+            (start_epoch, end_epoch),
+        ).fetchall()
+        timestamps.update(int(row["epoch"]) for row in rows if row["epoch"] is not None)
+
+    if not timestamps:
+        return 0.0, 0
+    buckets = {
+        (timestamp - start_epoch) // _REPORT_BUCKET_SECONDS
+        for timestamp in timestamps
+    }
+    duration_seconds = max(1, end_epoch - start_epoch)
+    possible = max(1, math.ceil(duration_seconds / _REPORT_BUCKET_SECONDS))
+    tracked_seconds = min(duration_seconds, len(buckets) * _REPORT_BUCKET_SECONDS)
+    return round(tracked_seconds / 3600, 1), min(100, round(len(buckets) / possible * 100))
+
+
+def _report_summary(label, start, end):
+    occupancy = _report_occupancy(start, end)
+    tracked_hours, completeness = _report_coverage(start, end)
+    peak_at = occupancy["peak_at"]
+    return {
+        "range_label": label,
+        "total_hours_tracked": tracked_hours,
+        "avg_occupancy": occupancy["avg"],
+        "peak_occupancy": occupancy["peak"],
+        "peak_at": peak_at.astimezone(_report_zone()).isoformat() if peak_at else None,
+        "data_completeness_percent": completeness,
+    }
+
+
+def _report_error_metrics(actual, predicted):
+    absolute = [abs(a - p) for a, p in zip(actual, predicted)]
+    squared = [(a - p) ** 2 for a, p in zip(actual, predicted)]
+    return round(sum(absolute) / len(actual), 2), round(math.sqrt(sum(squared) / len(actual)), 2)
+
+
+def _report_evaluation(start, end):
+    db = get_db()
+    truth_rows = db.execute(
+        """
+        SELECT occupancy_count, observed_at
+        FROM occupancy_ground_truth
+        WHERE room_id = ?
+          AND CAST(strftime('%s', observed_at) AS INTEGER) BETWEEN ? AND ?
+        ORDER BY observed_at
+        """,
+        (_REPORT_ROOM, int(start.timestamp()), int(end.timestamp())),
+    ).fetchall()
+    truth = []
+    for row in truth_rows:
+        observed_at = _report_time(row["observed_at"])
+        if observed_at is not None:
+            truth.append((observed_at, int(row["occupancy_count"])))
+    if not truth:
+        return {"metrics": []}
+
+    event_rows = db.execute(
+        """
+        SELECT count_change, received_at
+        FROM occupancy_events
+        WHERE received_at <= ?
+        ORDER BY received_at, id
+        """,
+        (truth[-1][0].isoformat(),),
+    ).fetchall()
+    events = []
+    for row in event_rows:
+        received_at = _report_time(row["received_at"])
+        if received_at is not None:
+            events.append((received_at, int(row["count_change"])))
+
+    actual = []
+    pir_predictions = []
+    fusion_predictions = []
+    current = 0
+    event_index = 0
+    for observed_at, occupancy_count in truth:
+        while event_index < len(events) and events[event_index][0] <= observed_at:
+            current = max(0, current + events[event_index][1])
+            event_index += 1
+        radar = db.execute(
+            """
+            SELECT MAX(target_count) AS target_count
+            FROM radar_readings
+            WHERE received_at BETWEEN ? AND ?
+            """,
+            (
+                (observed_at - timedelta(seconds=_REPORT_RADAR_TOLERANCE)).isoformat(),
+                observed_at.isoformat(),
+            ),
+        ).fetchone()["target_count"]
+        actual.append(occupancy_count)
+        pir_predictions.append(current)
+        fusion_predictions.append(max(current, int(radar)) if radar is not None else current)
+
+    baseline_mae, baseline_rmse = _report_error_metrics(actual, pir_predictions)
+    fusion_mae, fusion_rmse = _report_error_metrics(actual, fusion_predictions)
+    gain = 0.0 if baseline_mae == 0 else round((baseline_mae - fusion_mae) / baseline_mae * 100, 1)
+    count = len(actual)
+    return {
+        "metrics": [
+            {
+                "model": "PIR only (baseline)",
+                "mae": baseline_mae,
+                "rmse": baseline_rmse,
+                "fusion_gain_percent": None,
+                "sample_count": count,
+            },
+            {
+                "model": "PIR + mmWave fusion",
+                "mae": fusion_mae,
+                "rmse": fusion_rmse,
+                "fusion_gain_percent": gain,
+                "sample_count": count,
+            },
+        ]
+    }
+
+
+def _report_summary_csv(summary):
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["metric", "value"])
+    for key in (
+        "range_label",
+        "total_hours_tracked",
+        "avg_occupancy",
+        "peak_occupancy",
+        "peak_at",
+        "data_completeness_percent",
+    ):
+        writer.writerow([key, "" if summary[key] is None else summary[key]])
+    return output.getvalue().encode("utf-8-sig")
+
+
+def _report_co2_csv(start, end):
+    rows = get_db().execute(
+        """
+        SELECT device_id, co2_ppm, temperature_c, humidity_percent, received_at
+        FROM environment_readings
+        WHERE received_at BETWEEN ? AND ?
+        ORDER BY received_at, id
+        """,
+        (start.isoformat(), end.isoformat()),
+    ).fetchall()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    columns = ["device_id", "co2_ppm", "temperature_c", "humidity_percent", "received_at"]
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([row[column] for column in columns])
+    return output.getvalue().encode("utf-8-sig")
+
+
+def _report_pdf(summary, evaluation):
+    lines = [
+        "Indoor Occupancy - Fusion Evaluation Report",
+        f"Room: {_REPORT_ROOM}",
+        f"Range: {summary['range_label']}",
+        "",
+        f"Average occupancy: {summary['avg_occupancy']}",
+        f"Peak occupancy: {summary['peak_occupancy']}",
+        f"Data completeness: {summary['data_completeness_percent']}%",
+        "",
+        "Evaluation metrics:",
+    ]
+    if not evaluation["metrics"]:
+        lines.append("No ground-truth observations are available for this range.")
+    for metric in evaluation["metrics"]:
+        gain = metric["fusion_gain_percent"]
+        gain_text = "baseline" if gain is None else f"{gain}% MAE reduction"
+        lines.append(
+            f"{metric['model']}: MAE {metric['mae']}, RMSE {metric['rmse']}, "
+            f"{gain_text}, samples {metric['sample_count']}"
+        )
+
+    def escape(value):
+        value = value.encode("latin-1", "replace").decode("latin-1")
+        return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    commands = ["BT", "/F1 11 Tf", "50 790 Td"]
+    for index, line in enumerate(lines[:44]):
+        if index:
+            commands.append("0 -16 Td")
+        commands.append(f"({escape(line)}) Tj")
+    commands.append("ET")
+    stream = "\n".join(commands).encode("latin-1")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    document = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = []
+    for number, obj in enumerate(objects, 1):
+        offsets.append(len(document))
+        document.extend(f"{number} 0 obj\n".encode("ascii"))
+        document.extend(obj)
+        document.extend(b"\nendobj\n")
+    xref = len(document)
+    document.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    document.extend(b"0000000000 65535 f \n")
+    for offset in offsets:
+        document.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    document.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(document)
+
+
+def _report_artifacts(token, label, start, end):
+    zone = _report_zone()
+    local_start = start.astimezone(zone)
+    local_end = end.astimezone(zone)
+    range_label = f"{local_start:%b} {local_start.day} – {local_end:%b} {local_end.day}"
+    generated_at = local_end.isoformat()
+    summary = _report_summary(label, start, end)
+    evaluation = _report_evaluation(start, end)
+    files = [
+        ("r1", "Weekly occupancy summary" if token == "7d" else "Occupancy summary", "csv", f"occupancy-summary-{token}.csv", "text/csv", _report_summary_csv(summary)),
+        ("r2", "Fusion evaluation report", "pdf", f"fusion-evaluation-{token}.pdf", "application/pdf", _report_pdf(summary, evaluation)),
+        ("r3", "CO2 trend export", "csv", f"co2-trend-{token}.csv", "text/csv", _report_co2_csv(start, end)),
+    ]
+    artifacts = []
+    for export_id, name, file_format, filename, mimetype, content in files:
+        artifacts.append({
+            "id": export_id,
+            "name": name,
+            "room": _REPORT_ROOM,
+            "range_label": range_label,
+            "format": file_format,
+            "generated_at": generated_at,
+            "size_kb": max(1, math.ceil(len(content) / 1024)),
+            "filename": filename,
+            "mimetype": mimetype,
+            "content": content,
+        })
+    return artifacts
+
+
+@api.get("/reports/summary")
+def reports_summary():
+    try:
+        _token, label, start, end = _report_window()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(_report_summary(label, start, end)), 200
+
+
+@api.get("/reports/evaluation")
+def reports_evaluation():
+    try:
+        _token, _label, start, end = _report_window()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(_report_evaluation(start, end)), 200
+
+
+@api.get("/reports/exports")
+def reports_exports():
+    try:
+        token, label, start, end = _report_window()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    artifacts = _report_artifacts(token, label, start, end)
+    fields = ("id", "name", "room", "range_label", "format", "generated_at", "size_kb")
+    return jsonify({"exports": [{key: item[key] for key in fields} for item in artifacts]}), 200
+
+
+@api.get("/reports/exports/<export_id>/download")
+def reports_export_download(export_id):
+    try:
+        token, label, start, end = _report_window()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    artifacts = {item["id"]: item for item in _report_artifacts(token, label, start, end)}
+    artifact = artifacts.get(export_id)
+    if artifact is None:
+        return jsonify({"error": "Report export not found"}), 404
+    return send_file(
+        io.BytesIO(artifact["content"]),
+        mimetype=artifact["mimetype"],
+        as_attachment=True,
+        download_name=artifact["filename"],
+        max_age=0,
+    )

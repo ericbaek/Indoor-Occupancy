@@ -10,15 +10,14 @@ import Co2Chart from "./components/Co2Chart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
+import PredictiveOccupancy from "./components/PredictiveOccupancy";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
-// Rooms and alerts have no backend support yet (the real system is a
-// single doorway, not multi-room) — these stay mock until that data model
-// exists on the backend. Sensors is real (see SensorTable / data.radarDevices
-// / data.co2Ppm below).
+// Rooms and alerts use mock data; sensor values come from the backend.
 import { rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
 import { useHealthCheck } from "./hooks/useHealthCheck";
+import { useMlPrediction } from "./hooks/useMlPrediction";
 import { usePreferences, formatTemperature } from "./hooks/usePreferences";
 import "./App.css";
 
@@ -31,10 +30,7 @@ const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Settings: { title: "Settings", sub: "Theme, units, refresh rate and CO2 chart threshold" },
 };
 
-// Maps the backend's co2_level classification to a StatCard tone + tag.
-// Values match _co2_level() in backend/app/routes.py: "normal" (<800ppm),
-// "elevated" (800-1500ppm), "high" (>1500ppm). Falls back gracefully if
-// the backend sends something unrecognised (or none yet).
+// Matches the backend CO2 thresholds.
 function co2Presentation(level: string | null): { tone: "signal" | "amber" | "red" | "neutral"; tag: string } {
   switch (level) {
     case "normal":
@@ -52,6 +48,7 @@ function App() {
   const [page, setPage] = useState<NavItem>("Dashboard");
   const { preferences, update: updatePreference } = usePreferences();
   const data = useOccupancyData(preferences.pollMs);
+  const mlPrediction = useMlPrediction(preferences.pollMs);
   const health = useHealthCheck();
 
   const activeTargets = data.radarTargets.length;
@@ -132,6 +129,11 @@ function App() {
               <Co2Chart data={data.co2History} deviceId={data.co2DeviceId} elevatedPpm={preferences.co2AlertThreshold} />
             </section>
 
+            <PredictiveOccupancy
+              prediction={mlPrediction.data}
+              loading={mlPrediction.loading}
+              error={mlPrediction.error}
+            />
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
