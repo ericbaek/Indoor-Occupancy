@@ -1,0 +1,95 @@
+.ble-tracker-card {
+  margin-top: 24px;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ble-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ble-header-note {
+  margin: 2px 0 0;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.ble-summary-badge {
+  padding: 5px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--neutral-dim);
+  border-radius: 999px;
+}
+
+.ble-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 230px;
+}
+
+.ble-signal-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px;
+  transition: background-color 300ms ease;
+}
+
+.ble-signal-zone + .ble-signal-zone {
+  border-left: 1px solid var(--border);
+}
+
+.ble-signal-zone h4 {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.ble-signal-zone strong {
+  color: var(--text);
+  font-size: 34px;
+}
+
+.ble-signal-zone span,
+.ble-signal-zone small {
+  color: var(--text-faint);
+}
+
+.ble-signal-zone small {
+  text-transform: capitalize;
+}
+
+.ble-signal-zone.active small {
+  color: var(--signal);
+}
+
+.ble-error {
+  margin: 0;
+  padding: 10px 20px;
+  color: #f87171;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 700px) {
+  .ble-signal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ble-signal-zone + .ble-signal-zone {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}

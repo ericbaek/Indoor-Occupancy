@@ -10,6 +10,7 @@ import Co2Chart from "./components/Co2Chart";
 import RoomList from "./components/RoomList";
 import SensorTable from "./components/SensorTable";
 import AlertsPanel from "./components/AlertsPanel";
+import BleTracker from "./components/BleTracker";
 import PredictiveOccupancy from "./components/PredictiveOccupancy";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -134,6 +135,8 @@ function App() {
               loading={mlPrediction.loading}
               error={mlPrediction.error}
             />
+
+            <BleTracker />
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
