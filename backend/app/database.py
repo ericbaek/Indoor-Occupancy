@@ -684,11 +684,13 @@ def get_active_tags(
     cutoff = (now - __import__('datetime').timedelta(seconds=inactive_timeout_seconds)).isoformat()
     rows = get_db().execute(
         """
-        SELECT tag_id, MAX(received_at) AS last_seen_at
+        SELECT tag_id,
+               MIN(received_at) AS first_seen_at,
+               MAX(received_at) AS last_seen_at
         FROM bluetooth_readings
         WHERE received_at >= ?
         GROUP BY tag_id
-        ORDER BY tag_id
+        ORDER BY first_seen_at, tag_id
         """,
         (cutoff,),
     ).fetchall()

@@ -2,7 +2,7 @@
 :loop
 curl -s -X POST http://localhost:5000/api/bluetooth/readings ^
   -H "Content-Type: application/json" ^
-  -d "{\"message_type\":\"bluetooth_rssi\",\"scanner_id\":\"anchor-left\",\"tag_id\":\"ROOM-TAG-01\",\"rssi\":-50}" > nul
+  -d "{\"anchor_id\":\"left-anchor\",\"average_rssi\":-50,\"signal_score\":83.33}" > nul
 
 timeout /t 1 /nobreak > nul
 goto loop
