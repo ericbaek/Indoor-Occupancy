@@ -11,6 +11,8 @@ const SIDE_INSET = 12;
 const ORIGIN_BOTTOM_INSET = 4;
 const FALLBACK_SIZE = { width: 320, height: 220 };
 
+const DOT_RANGE_SCALE = 2;
+
 type RadarGeometry = {
   width: number;
   height: number;
@@ -44,7 +46,8 @@ function toXY(
 ) {
   // RD-03D reports 0deg straight ahead, with positive angles to the right.
   const angleRad = (angleDeg * Math.PI) / 180;
-  const normalizedDistance = Math.min(Math.max(distance / MAX_RANGE_MM, 0), 1);
+  const rawNormalized = Math.min(Math.max(distance / MAX_RANGE_MM, 0), 1);
+  const normalizedDistance = Math.min(rawNormalized * DOT_RANGE_SCALE, 1);
   const targetRadius = radius * normalizedDistance;
 
   return {
