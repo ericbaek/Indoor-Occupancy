@@ -149,12 +149,20 @@ function formatTimeLabel(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function buildOccupancySeries(eventsChronological: OccupancyEvent[]): OccupancyPoint[] {
+function buildOccupancySeries(eventsChronological: OccupancyEvent[], anchorOccupancy: number): OccupancyPoint[] {
+  if (eventsChronological.length === 0) return [];
+
+  // Same anchoring fix as buildCumulative: sum raw deltas, then shift so
+  // the series ends exactly on the backend's authoritative occupancy
+  // instead of assuming the fetch window started from an empty room.
   let running = 0;
-  return eventsChronological.map((e) => {
-    running = Math.max(0, running + e.count_change);
-    return { t: formatTimeLabel(e.received_at), count: running };
+  const raw = eventsChronological.map((e) => {
+    running += e.count_change;
+    return { t: formatTimeLabel(e.received_at), raw: running };
   });
+
+  const offset = anchorOccupancy - raw[raw.length - 1].raw;
+  return raw.map((p) => ({ t: p.t, count: Math.max(0, p.raw + offset) }));
 }
 
 function buildCo2Series(readingsNewestFirst: Co2Reading[]): Co2Point[] {
@@ -173,17 +181,45 @@ function pickHighestCo2Device(devices: Co2Reading[]): string | null {
 
 type CumPoint = { ts: number; value: number };
 
-function buildCumulative(eventsChronological: OccupancyEvent[]): CumPoint[] {
+/**
+ * Build the running-occupancy series from fetched events, anchored to the
+ * backend's authoritative current occupancy (`anchorOccupancy`, from
+ * /occupancy/status). The backend sums the COMPLETE event history; we only
+ * ever fetch the most recent `EVENTS_FETCH_LIMIT` events. Summing forward
+ * from an assumed 0 silently drops any occupancy that already existed
+ * before our fetch window, so the chart's endpoint can drift from the
+ * status card (e.g. showing 4 when the real current occupancy is 1).
+ *
+ * Instead we sum forward WITHOUT clamping to get the correct shape of the
+ * series, then shift every point by a constant offset so the last point
+ * lands exactly on `anchorOccupancy`. That's equivalent to working
+ * backward from the known-good current value using the deltas we do
+ * have, which correctly carries forward pre-window occupancy.
+ */
+function buildCumulative(eventsChronological: OccupancyEvent[], anchorOccupancy: number): CumPoint[] {
+  if (eventsChronological.length === 0) {
+    // No events in the fetch window at all, but the room may still be
+    // occupied (those events just fell outside our `limit`). Anchor a
+    // single point at "now" so the chart shows a flat, correct line
+    // instead of a false 0.
+    return [{ ts: Date.now(), value: Math.max(0, anchorOccupancy) }];
+  }
+
   let running = 0;
-  return eventsChronological.map((e) => {
-    running = Math.max(0, running + e.count_change);
-    return { ts: new Date(e.received_at).getTime(), value: running };
+  const raw = eventsChronological.map((e) => {
+    running += e.count_change;
+    return { ts: new Date(e.received_at).getTime(), raw: running };
   });
+
+  const offset = anchorOccupancy - raw[raw.length - 1].raw;
+  return raw.map((p) => ({ ts: p.ts, value: Math.max(0, p.raw + offset) }));
 }
 
 /** Occupancy at time `t`, i.e. the value of the last event at or before `t` (0 if none yet). */
 function valueAt(cumAsc: CumPoint[], t: number): number {
-  let val = 0;
+  if (cumAsc.length === 0) return 0;
+  if (t < cumAsc[0].ts) return cumAsc[0].value;
+  let val = cumAsc[0].value;
   for (const p of cumAsc) {
     if (p.ts > t) break;
     val = p.value;
@@ -197,16 +233,28 @@ function buildRangeSeries(cumAsc: CumPoint[], range: OccupancyRange): OccupancyP
   const start = now - windowMs;
   const step = windowMs / buckets;
 
-  const points: OccupancyPoint[] = [];
+  // Fixed grid so every range always has an evenly spaced baseline, even
+  // when nothing happened for a while.
+  const gridTimes: number[] = [];
   for (let i = 0; i <= buckets; i++) {
-    const t = start + step * i;
-    points.push({ t: label(new Date(t)), count: valueAt(cumAsc, t) });
+    gridTimes.push(start + step * i);
   }
-  return points;
+
+  // Real event timestamps inside the window. Without these, a brief
+  // entry+exit pair that falls between two grid samples is never sampled
+  // at all, so the true peak (e.g. 2 -> 3 -> 2) silently disappears from
+  // the chart even though it really happened.
+  const eventTimes = cumAsc
+    .map((p) => p.ts)
+    .filter((ts) => ts >= start && ts <= now);
+
+  const allTimes = Array.from(new Set([...gridTimes, ...eventTimes])).sort((a, b) => a - b);
+
+  return allTimes.map((t) => ({ t: label(new Date(t)), count: valueAt(cumAsc, t) }));
 }
 
-function buildAllRangeSeries(eventsChronological: OccupancyEvent[]): Record<OccupancyRange, OccupancyPoint[]> {
-  const cumAsc = buildCumulative(eventsChronological);
+function buildAllRangeSeries(eventsChronological: OccupancyEvent[], anchorOccupancy: number): Record<OccupancyRange, OccupancyPoint[]> {
+  const cumAsc = buildCumulative(eventsChronological, anchorOccupancy);
   const out = {} as Record<OccupancyRange, OccupancyPoint[]>;
   (Object.keys(RANGE_CONFIG) as OccupancyRange[]).forEach((range) => {
     out[range] = buildRangeSeries(cumAsc, range);
@@ -283,8 +331,8 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
           radarTargetCount: status.radar_target_count,
           radarTargets: mapRadarDevicesToTargets(radarJson.devices ?? []),
           events: eventsJson.events ?? [],
-          occupancySeries: buildOccupancySeries(chronological),
-          occupancySeriesByRange: buildAllRangeSeries(chronological),
+          occupancySeries: buildOccupancySeries(chronological, status.occupancy),
+          occupancySeriesByRange: buildAllRangeSeries(chronological, status.occupancy),
           lastOccupancyEventAt: status.last_occupancy_event_at,
           lastRadarUpdateAt: status.last_radar_update_at,
           mismatchStartedAt: status.mismatch_started_at,

@@ -17,7 +17,6 @@ export default function OccupancyChart({
   dataByRange,
   capacity,
 }: {
-  /** Real backend event history, bucketed per range by useOccupancyData(). */
   dataByRange: Record<OccupancyRange, OccupancyPoint[]>;
   capacity: number;
 }) {
@@ -47,7 +46,7 @@ export default function OccupancyChart({
 
       <div className="chart-plot">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: -15, bottom: 0 }}>
           <defs>
             <linearGradient id="occFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#17B3A3" stopOpacity={0.28} />
@@ -62,7 +61,7 @@ export default function OccupancyChart({
             contentStyle={{ borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)", color: "var(--text)", fontSize: 12, fontFamily: "Inter" }}
             labelStyle={{ fontWeight: 600, color: "var(--text)" }}
           />
-          <Area type="monotone" dataKey="count" stroke="#17B3A3" strokeWidth={2.25} fill="url(#occFill)" name="People" isAnimationActive={false} />
+          <Area type="stepAfter" dataKey="count" stroke="#17B3A3" strokeWidth={2.25} fill="url(#occFill)" name="People" isAnimationActive={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
