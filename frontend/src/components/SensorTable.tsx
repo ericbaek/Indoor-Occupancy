@@ -1,4 +1,4 @@
-import type { RadarDevice, BlePosition } from "../data";
+import type { RadarDevice, BleSignalSummary } from "../data";
 import { isRecentlySeen, timeAgoLabel } from "../lib/sensorHealth";
 import "./SensorTable.css";
 
@@ -9,12 +9,6 @@ import "./SensorTable.css";
 const RADAR_STALE_MS = 15_000; // continuous mmWave polling (will go offline after 15 sec of inactivity)
 const CO2_STALE_MS = 30_000; // continuous SCD41 polling (will go offline after 30 sec of inactivity)
 const PIR_STALE_MS = 60_000; // event-driven (will go offline after 1 minute of inactivity)
-const BLE_STALE_MS = 3_000; // slightly above the backend's 2s rssi_window_seconds (will go offline after 3 sec of inactivity)
-
-// Mirrors ANCHOR_POSITIONS keys in backend/app/ble_config.py. There's no
-// API endpoint that lists configured anchors, so this is hand-kept in
-// sync \u2014 update if a teammate adds/renames an anchor server-side.
-const KNOWN_BLE_ANCHORS = ["anchor-left", "anchor-right", "anchor-back"] as const;
 
 type SensorStatus = "online" | "offline" | "unknown";
 
@@ -23,37 +17,37 @@ type SensorRow = {
   type: string;
   detail: string;
   lastSeen: string | null;
-  /** Overrides the computed "Xs ago" label \u2014 used when lastSeen genuinely can't be known (see BLE rows). */
+  /** Overrides the computed "Xs ago" label — used when lastSeen genuinely can't be known (see BLE rows). */
   lastSeenLabel?: string;
   status: SensorStatus;
 };
 
-function buildBleAnchorRows(bleTagsFull: BlePosition[]): SensorRow[] {
-  return KNOWN_BLE_ANCHORS.map((anchorId) => {
-    // Look for any currently-active tag whose smoothed scanner_rssi
-    // includes this anchor within the last few seconds \u2014 the only
-    // signal we have, since there's no per-anchor heartbeat endpoint.
-    const heardBy = bleTagsFull.find(
-      (tag) => anchorId in (tag.scanner_rssi ?? {}) && isRecentlySeen(tag.last_seen_at, BLE_STALE_MS)
-    );
+function buildBleAnchorRows(bleSignal: BleSignalSummary | null): SensorRow[] {
+  if (!bleSignal) {
+    return [
+      { node: "left-anchor", type: "BLE anchor", detail: "No data yet", lastSeen: null, lastSeenLabel: "Unknown", status: "unknown" },
+      { node: "right-anchor", type: "BLE anchor", detail: "No data yet", lastSeen: null, lastSeenLabel: "Unknown", status: "unknown" },
+    ];
+  }
 
-    if (heardBy) {
+  return (["left", "right"] as const).map((zoneName) => {
+    const zone = bleSignal.zones[zoneName];
+    if (zone.status === "active") {
       return {
-        node: anchorId,
+        node: zone.anchor_id,
         type: "BLE anchor",
-        detail: `${heardBy.scanner_rssi[anchorId]} dBm (via ${heardBy.tag_id})`,
-        lastSeen: heardBy.last_seen_at,
+        detail: zone.signal_score !== null ? `Signal score ${Math.round(zone.signal_score)}` : "Active",
+        lastSeen: zone.last_seen_at,
         status: "online" as SensorStatus,
       };
     }
-
     return {
-      node: anchorId,
+      node: zone.anchor_id,
       type: "BLE anchor",
-      detail: "No tag nearby to confirm",
-      lastSeen: null,
-      lastSeenLabel: "Unknown",
-      status: "unknown" as SensorStatus,
+      detail: "No recent signal",
+      lastSeen: zone.last_seen_at,
+      lastSeenLabel: zone.last_seen_at ? undefined : "Unknown",
+      status: "offline" as SensorStatus,
     };
   });
 }
@@ -65,7 +59,7 @@ function buildRows(
   lastEnvironmentUpdateAt: string | null,
   lastOccupancyEventAt: string | null,
   lastEventType: "entry" | "exit" | null,
-  bleTagsFull: BlePosition[]
+  bleSignal: BleSignalSummary | null
 ): SensorRow[] {
   const rows: SensorRow[] = [];
 
@@ -111,7 +105,7 @@ function buildRows(
     status: isRecentlySeen(lastEnvironmentUpdateAt, CO2_STALE_MS) ? "online" : "offline",
   });
 
-  rows.push(...buildBleAnchorRows(bleTagsFull));
+  rows.push(...buildBleAnchorRows(bleSignal));
 
   return rows;
 }
@@ -123,7 +117,7 @@ export default function SensorTable({
   lastEnvironmentUpdateAt,
   lastOccupancyEventAt,
   lastEventType,
-  bleTagsFull,
+  bleSignal,
 }: {
   radarDevices: RadarDevice[];
   co2Ppm: number | null;
@@ -131,7 +125,7 @@ export default function SensorTable({
   lastEnvironmentUpdateAt: string | null;
   lastOccupancyEventAt: string | null;
   lastEventType: "entry" | "exit" | null;
-  bleTagsFull: BlePosition[];
+  bleSignal: BleSignalSummary | null;
 }) {
   const rows = buildRows(
     radarDevices,
@@ -140,7 +134,7 @@ export default function SensorTable({
     lastEnvironmentUpdateAt,
     lastOccupancyEventAt,
     lastEventType,
-    bleTagsFull
+    bleSignal
   );
   const onlineCount = rows.filter((r) => r.status === "online").length;
 

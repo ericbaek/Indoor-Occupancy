@@ -136,13 +136,7 @@ function App() {
               error={mlPrediction.error}
             />
 
-            <BleTracker 
-              tagCount={data.bleTagCount} 
-              zones={data.bleZones} 
-              positions={data.blePositions} 
-              tagsFull={data.bleTagsFull} 
-              units={preferences.units}
-            />
+            <BleTracker signal={data.bleSignal} />
 
             <p className="app-footer">
               {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
@@ -165,7 +159,7 @@ function App() {
               lastEnvironmentUpdateAt={data.lastEnvironmentUpdateAt}
               lastOccupancyEventAt={data.lastOccupancyEventAt}
               lastEventType={data.events[0]?.event ?? null}
-              bleTagsFull={data.bleTagsFull}
+              bleSignal={data.bleSignal}
             />
           </section>
         )}

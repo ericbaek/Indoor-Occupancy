@@ -6,7 +6,7 @@ import type {
   OccupancyPoint,
   OccupancyRange,
   RadarDevice,
-  BlePosition,
+  BleSignalSummary,
   Co2Reading,
   Co2Point,
 } from "../data";
@@ -90,10 +90,8 @@ export type OccupancyData = {
   co2History: Co2Point[];
   /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
   radarDevices: RadarDevice[];
-  bleTagCount: number;
-  bleZones: Record<string, number>;
-  blePositions: Array<{tag_id: string; x: number; y: number; label: string}>;
-  bleTagsFull: BlePosition[];
+  /** Live left/right anchor signal snapshot from /api/bluetooth/signal-strength, or null before the first successful poll. */
+  bleSignal: BleSignalSummary | null;
   lastUpdated: Date;
   isLive: boolean;
   error: string | null;
@@ -123,10 +121,7 @@ const initialState: OccupancyData = {
   co2DeviceId: null,
   co2History: [],
   radarDevices: [],
-  bleTagCount: 0,
-  bleZones: {},
-  blePositions: [],
-  bleTagsFull: [],
+  bleSignal: null,
   lastUpdated: new Date(),
   isLive: false,
   error: null,
@@ -277,21 +272,20 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
 
     async function fetchLatest() {
       try {
-        const [statusRes, radarRes, eventsRes, bleTagsRes] = await Promise.all([
+        const [statusRes, radarRes, eventsRes, bleSignalRes] = await Promise.all([
           fetch(`${API_BASE}/occupancy/status`),
           fetch(`${API_BASE}/radar/latest`),
           fetch(`${API_BASE}/occupancy/events?limit=${EVENTS_FETCH_LIMIT}`),
-          fetch(`${API_BASE}/bluetooth/tags`),
+          fetch(`${API_BASE}/bluetooth/signal-strength`),
         ]);
 
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
-        // don't fail if BLE is down, just log
-        let bleTagsFull: BlePosition[] = [];
-        if (bleTagsRes.ok) {
-           const bleJson = await bleTagsRes.json();
-           bleTagsFull = bleJson.tags || [];
+        // Don't fail the whole poll if BLE is down — just leave it null.
+        let bleSignal: BleSignalSummary | null = null;
+        if (bleSignalRes.ok) {
+          bleSignal = await bleSignalRes.json();
         }
 
         const status: OccupancyStatus = await statusRes.json();
@@ -344,10 +338,7 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
           co2DeviceId,
           co2History,
           radarDevices: radarJson.devices ?? [],
-          bleTagCount: status.bluetooth_tag_count ?? 0,
-          bleZones: status.bluetooth_zones ?? {},
-          blePositions: status.bluetooth_positions ?? [],
-          bleTagsFull,
+          bleSignal,
           lastUpdated: new Date(),
           isLive: true,
           error: null,

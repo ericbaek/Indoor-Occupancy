@@ -65,34 +65,33 @@ export type OccupancyStatus = {
   temperature_c?: number | null;
   humidity_percent?: number | null;
   last_environment_update_at?: string | null;
-  bluetooth_tag_count?: number;
-  bluetooth_zones?: Record<string, number>;
-  bluetooth_positions?: Array<{
-    tag_id: string;
-    x: number;
-    y: number;
-    label: string;
-  }>;
 };
 
-export type BlePosition = {
-  tag_id: string;
-  status: "inside" | "outside" | "unknown";
-  zone: string;
-  stable_zone: string;
-  position: {
-    x: number;
-    y: number;
-    unit: string;
-    method: string;
-    label: string;
-    quality: number;
-  } | null;
-  strongest_scanner: string | null;
-  confidence_db: number;
-  scanner_rssi: Record<string, number>;
-  estimated_distances: Record<string, number>;
-  last_seen_at: string;
+// Mirrors the real backend's two-zone Bluetooth signal-strength model
+// (see backend/app/ble_service.py / ble_config.py). The backend no longer
+// tracks individual tags, positions, or device counts — just one
+// left/right anchor each, smoothed to a 0-100 "signal score".
+export type BleZoneSnapshot = {
+  anchor_id: string;
+  zone: "left" | "right";
+  status: "active" | "offline";
+  average_rssi: number | null;
+  signal_score: number | null;
+  raw_signal_score?: number;
+  last_seen_at: string | null;
+  reported_at?: string;
+  calibration_offset_db: number;
+};
+
+export type BleSignalSummary = {
+  measurement: string;
+  zones: {
+    left: BleZoneSnapshot;
+    right: BleZoneSnapshot;
+  };
+  stronger_zone: "left" | "right" | "balanced" | null;
+  anchor_timeout_seconds: number;
+  ema_alpha: number;
 };
 
 export type Co2Reading = {
