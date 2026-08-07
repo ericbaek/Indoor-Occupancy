@@ -89,7 +89,7 @@ export default function Settings({
                 key={ms}
                 active={preferences.pollMs === ms}
                 onClick={() => onUpdate("pollMs", ms)}
-                label={ms < 1000 ? `${ms}ms` : `${ms / 1000}s`}
+                label={`${ms / 1000}s`}
                 icon={<RefreshCw size={13} strokeWidth={2.25} />}
               />
             ))}

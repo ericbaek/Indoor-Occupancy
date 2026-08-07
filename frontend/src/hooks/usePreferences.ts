@@ -30,7 +30,7 @@ export type Preferences = {
   co2AlertThreshold: number;
 };
 
-export const POLL_RATE_OPTIONS = [1000, 2000, 5000, 10000] as const;
+export const POLL_RATE_OPTIONS = [500, 1000, 3000, 5000] as const;
 
 const DEFAULT_PREFERENCES: Preferences = {
   theme: "light",

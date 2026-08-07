@@ -115,7 +115,7 @@ function App() {
                 icon={<Clock3 size={17} strokeWidth={2} />}
                 label="Last updated"
                 value={lastUpdatedLabel}
-                sub={`Polling every ${preferences.pollMs < 1000 ? `${preferences.pollMs}ms` : `${preferences.pollMs / 1000}s`}`}
+                sub={`Polling every ${preferences.pollMs / 1000}s`}
                 tone="blue"
                 tag={data.isLive ? "Live" : "Stale"}
               />
