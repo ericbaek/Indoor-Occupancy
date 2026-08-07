@@ -150,9 +150,38 @@
   color: var(--text-faint);
 }
 
+.heat-zone {
+  pointer-events: none;
+}
+
 .heat-glow {
   pointer-events: none;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.4s ease, r 0.4s ease;
+}
+
+.heat-pulse-ring {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 2.5;
+  opacity: 0.55;
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: heat-pulse 1.8s ease-out infinite;
+}
+
+@keyframes heat-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.55;
+  }
+  75% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
 }
 
 .ble-list {

@@ -12,12 +12,28 @@ const ROOM_WIDTH = 8.0;
 const ROOM_HEIGHT = 5.0;
 const HALF_X = ROOM_WIDTH / 2;
 
-/** 0 (no/offline signal) to 1 (strongest possible) drives the heatmap glow intensity. */
+/**
+ * 0 (no/offline signal) to 1 (strongest possible) drives the heatmap glow.
+ *
+ * This is intentionally NOT linear with signal_score. A gentle exponent
+ * (>1) pushes weak signals down toward "barely there" and lets strong
+ * signals hold onto most of their brightness, so a real difference in
+ * strength (e.g. 85 vs 30) reads as a drastic visual difference instead
+ * of two similarly-glowy blobs. There's a tiny floor (0.05) purely so an
+ * active-but-weak zone is distinguishable from a fully offline one.
+ */
 function zoneIntensity(zone: BleZoneSnapshot | undefined): number {
   if (!zone || zone.status !== "active" || zone.signal_score === null) return 0;
-  // Floor at 0.35 so an active zone is always visibly "hot", even at a
-  // weak signal_score — this is a presence glow, not a precise gauge.
-  return Math.max(0.35, Math.min(1, zone.signal_score / 100));
+  const normalized = Math.max(0, Math.min(1, zone.signal_score / 100));
+  const shaped = Math.pow(normalized, 1.8);
+  return Math.max(0.05, shaped);
+}
+
+/** Glow radius (in local SVG units) scales with intensity too, so a strong
+ * signal is a big blob and a weak one is a tight, small dot — the size
+ * difference reinforces the opacity difference instead of relying on it alone. */
+function zoneRadius(intensity: number): number {
+  return 55 + intensity * 230;
 }
 
 function formatScore(zone: BleZoneSnapshot | undefined): string {
@@ -43,6 +59,14 @@ export default function BleTracker({ signal }: BleTrackerProps) {
   const leftIntensity = zoneIntensity(left);
   const rightIntensity = zoneIntensity(right);
   const activeCount = [left, right].filter((z) => z?.status === "active").length;
+
+  // A "drastic" gap is when the two intensities differ by a lot — that's
+  // when we add a pulsing ring around the stronger side to make the
+  // imbalance unmistakable, rather than just leaning on the base glow.
+  const intensityGap = Math.abs(leftIntensity - rightIntensity);
+  const isDrasticGap = intensityGap > 0.35;
+  const leftIsDominant = isDrasticGap && leftIntensity > rightIntensity;
+  const rightIsDominant = isDrasticGap && rightIntensity > leftIntensity;
 
   return (
     <div className="ble-tracker-card card-base">
@@ -74,6 +98,10 @@ export default function BleTracker({ signal }: BleTrackerProps) {
                 <stop offset="55%" stopColor="var(--signal)" stopOpacity="0.28" />
                 <stop offset="100%" stopColor="var(--signal)" stopOpacity="0" />
               </radialGradient>
+              <radialGradient id="heatCore" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="var(--signal)" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="var(--signal)" stopOpacity="0" />
+              </radialGradient>
             </defs>
 
             {/* Two halves, one per anchor. There's no per-person position
@@ -97,26 +125,60 @@ export default function BleTracker({ signal }: BleTrackerProps) {
             </text>
 
             {leftIntensity > 0 && (
-              <rect
-                x={0}
-                y={0}
-                width={HALF_X * 100}
-                height={ROOM_HEIGHT * 100}
-                fill="url(#heatGlowLeft)"
-                opacity={leftIntensity}
-                className="heat-glow"
-              />
+              <g className={leftIsDominant ? "heat-zone heat-zone-dominant" : "heat-zone"}>
+                {leftIsDominant && (
+                  <circle
+                    cx={(HALF_X / 2) * 100}
+                    cy={ROOM_HEIGHT * 50}
+                    r={zoneRadius(leftIntensity)}
+                    className="heat-pulse-ring"
+                  />
+                )}
+                <circle
+                  cx={(HALF_X / 2) * 100}
+                  cy={ROOM_HEIGHT * 50}
+                  r={zoneRadius(leftIntensity)}
+                  fill="url(#heatGlowLeft)"
+                  opacity={leftIntensity}
+                  className="heat-glow"
+                />
+                <circle
+                  cx={(HALF_X / 2) * 100}
+                  cy={ROOM_HEIGHT * 50}
+                  r={zoneRadius(leftIntensity) * 0.35}
+                  fill="url(#heatCore)"
+                  opacity={leftIntensity}
+                  className="heat-glow"
+                />
+              </g>
             )}
             {rightIntensity > 0 && (
-              <rect
-                x={HALF_X * 100}
-                y={0}
-                width={HALF_X * 100}
-                height={ROOM_HEIGHT * 100}
-                fill="url(#heatGlowRight)"
-                opacity={rightIntensity}
-                className="heat-glow"
-              />
+              <g className={rightIsDominant ? "heat-zone heat-zone-dominant" : "heat-zone"}>
+                {rightIsDominant && (
+                  <circle
+                    cx={(HALF_X + HALF_X / 2) * 100}
+                    cy={ROOM_HEIGHT * 50}
+                    r={zoneRadius(rightIntensity)}
+                    className="heat-pulse-ring"
+                  />
+                )}
+                <circle
+                  cx={(HALF_X + HALF_X / 2) * 100}
+                  cy={ROOM_HEIGHT * 50}
+                  r={zoneRadius(rightIntensity)}
+                  fill="url(#heatGlowRight)"
+                  opacity={rightIntensity}
+                  className="heat-glow"
+                />
+                <circle
+                  cx={(HALF_X + HALF_X / 2) * 100}
+                  cy={ROOM_HEIGHT * 50}
+                  r={zoneRadius(rightIntensity) * 0.35}
+                  fill="url(#heatCore)"
+                  opacity={rightIntensity}
+                  className="heat-glow"
+                />
+              </g>
             )}
           </svg>
         </div>
