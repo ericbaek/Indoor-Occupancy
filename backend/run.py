@@ -23,6 +23,27 @@ def _start_serial_thread(port: str, baudrate: int, backend_url: str) -> None:
     print(f"  Gateway : serial {port} @ {baudrate} baud → {backend_url}")
 
 
+def _start_keyboard_controls(port: int) -> None:
+    if not sys.stdin.isatty():
+        print("  Keyboard: disabled (interactive terminal required)")
+        return
+
+    from occupancy_calibrator import run_backend_prompt
+
+    def _run() -> None:
+        try:
+            run_backend_prompt(f"http://127.0.0.1:{port}", wait_seconds=15)
+        except Exception as error:
+            print(f"  Keyboard controls stopped: {error}")
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name="occupancy-keyboard-controls",
+    ).start()
+    print("  Keyboard: occupancy commands enabled in this terminal")
+
+
 def _parse_args() -> argparse.Namespace:
     default_url = os.environ.get("BACKEND_URL", "http://localhost:5000")
     parser = argparse.ArgumentParser(
@@ -44,6 +65,11 @@ def _parse_args() -> argparse.Namespace:
         default=default_url,
         help=f"Backend base URL used by the gateway (default: {default_url})",
     )
+    parser.add_argument(
+        "--no-keyboard-controls",
+        action="store_true",
+        help="Disable occupancy keyboard controls in the backend terminal.",
+    )
     return parser.parse_args()
 
 
@@ -62,6 +88,10 @@ def main() -> None:
 
     if args.serial_port:
         _start_serial_thread(args.serial_port, args.baudrate, args.url)
+
+    reloader_process = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if not args.no_keyboard_controls and (not config.debug or reloader_process):
+        _start_keyboard_controls(config.port)
 
     app.run(host=config.host, port=config.port, debug=config.debug)
 

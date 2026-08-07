@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 import requests
 
@@ -16,6 +17,17 @@ def get_occupancy(base: str) -> int:
     response = requests.get(f"{base}/occupancy/current", timeout=5)
     response.raise_for_status()
     return int(response.json()["occupancy"])
+
+
+def wait_for_backend(base: str, timeout_seconds: float) -> int:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            return get_occupancy(base)
+        except requests.RequestException:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
 
 
 def calibrate(base: str, payload: dict[str, int]) -> dict:
@@ -78,6 +90,75 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def run_interactive(backend_url: str, wait_seconds: float = 0) -> None:
+    base = api_base(backend_url)
+    current = (
+        wait_for_backend(base, wait_seconds)
+        if wait_seconds > 0
+        else get_occupancy(base)
+    )
+    print(f"Backend: {base}")
+    print(
+        "+ / Up: add 1    - / Down: remove 1    S: set number    "
+        "R: refresh    Q: stop keyboard controls"
+    )
+    print(f"Occupancy: {current}")
+
+    while True:
+        key = read_key()
+        if key in ("q", "Q", "\x03"):
+            print("\nKeyboard occupancy controls stopped.")
+            return
+        if key in ("+", "=", "up"):
+            show_result(calibrate(base, {"delta": 1}))
+        elif key in ("-", "_", "down"):
+            show_result(calibrate(base, {"delta": -1}))
+        elif key in ("r", "R"):
+            print(f"\rOccupancy: {get_occupancy(base)}                    ")
+        elif key in ("s", "S"):
+            raw_value = input("\nSet occupancy (0-1000): ").strip()
+            try:
+                target = int(raw_value)
+            except ValueError:
+                print("Enter a whole number.")
+                continue
+            show_result(calibrate(base, {"occupancy": target}))
+
+
+def run_backend_prompt(backend_url: str, wait_seconds: float = 0) -> None:
+    base = api_base(backend_url)
+    current = (
+        wait_for_backend(base, wait_seconds)
+        if wait_seconds > 0
+        else get_occupancy(base)
+    )
+    print(
+        "Occupancy commands: ADD | REMOVE | SET 5 | SHOW | STOP "
+        "(press Enter after each command)"
+    )
+    print(f"Occupancy: {current}")
+
+    while True:
+        command = input().strip()
+        lowered = command.lower()
+        if lowered == "stop":
+            print("Keyboard occupancy controls stopped.")
+            return
+        if lowered == "add":
+            show_result(calibrate(base, {"delta": 1}))
+        elif lowered == "remove":
+            show_result(calibrate(base, {"delta": -1}))
+        elif lowered == "show":
+            print(f"Occupancy: {get_occupancy(base)}")
+        elif lowered.startswith("set "):
+            try:
+                target = int(command.split(maxsplit=1)[1])
+            except (ValueError, IndexError):
+                print("Use SET followed by a whole number, for example: SET 5")
+                continue
+            show_result(calibrate(base, {"occupancy": target}))
+
+
 def main() -> None:
     args = parse_args()
     base = api_base(args.url)
@@ -90,30 +171,7 @@ def main() -> None:
             show_result(calibrate(base, {"delta": args.delta}))
             return
 
-        current = get_occupancy(base)
-        print(f"Backend: {base}")
-        print("+ / Up: add 1    - / Down: remove 1    S: set number    R: refresh    Q: quit")
-        print(f"Occupancy: {current}")
-
-        while True:
-            key = read_key()
-            if key in ("q", "Q", "\x03"):
-                print("\nStopped.")
-                return
-            if key in ("+", "=", "up"):
-                show_result(calibrate(base, {"delta": 1}))
-            elif key in ("-", "_", "down"):
-                show_result(calibrate(base, {"delta": -1}))
-            elif key in ("r", "R"):
-                print(f"\rOccupancy: {get_occupancy(base)}                    ")
-            elif key in ("s", "S"):
-                raw_value = input("\nSet occupancy (0-1000): ").strip()
-                try:
-                    target = int(raw_value)
-                except ValueError:
-                    print("Enter a whole number.")
-                    continue
-                show_result(calibrate(base, {"occupancy": target}))
+        run_interactive(args.url)
     except (requests.RequestException, RuntimeError, KeyError, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
         raise SystemExit(1) from error

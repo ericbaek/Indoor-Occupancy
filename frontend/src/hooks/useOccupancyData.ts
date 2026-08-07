@@ -10,6 +10,7 @@ import type {
   Co2Reading,
   Co2Point,
 } from "../data";
+import { OCCUPANCY_REFRESH_EVENT } from "../lib/occupancyCalibration";
 
 // Point this at your Flask backend. Override with a Vite env var
 // (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
@@ -356,9 +357,12 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
 
     fetchLatest();
     const id = setInterval(fetchLatest, pollMs);
+    const refreshLatest = () => void fetchLatest();
+    window.addEventListener(OCCUPANCY_REFRESH_EVENT, refreshLatest);
     return () => {
       cancelledRef.current = true;
       clearInterval(id);
+      window.removeEventListener(OCCUPANCY_REFRESH_EVENT, refreshLatest);
     };
   }, [pollMs]);
 

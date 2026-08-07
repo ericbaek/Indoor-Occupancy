@@ -19,6 +19,7 @@ import { rooms, alerts } from "./data";
 import { useOccupancyData } from "./hooks/useOccupancyData";
 import { useHealthCheck } from "./hooks/useHealthCheck";
 import { useMlPrediction } from "./hooks/useMlPrediction";
+import { useOccupancyKeyboardCalibration } from "./hooks/useOccupancyKeyboardCalibration";
 import { usePreferences, formatTemperature } from "./hooks/usePreferences";
 import "./App.css";
 
@@ -51,6 +52,7 @@ function App() {
   const data = useOccupancyData(preferences.pollMs);
   const mlPrediction = useMlPrediction(preferences.pollMs);
   const health = useHealthCheck();
+  useOccupancyKeyboardCalibration(page === "Dashboard");
 
   const activeTargets = data.radarTargets.length;
   const lastUpdatedLabel = data.lastUpdated.toLocaleTimeString([], {
