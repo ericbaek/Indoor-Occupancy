@@ -396,6 +396,82 @@ def get_occupancy_total() -> tuple[int, str | None]:
     return max(0, total), row["updated_at"]
 
 
+def calibrate_occupancy(
+    *,
+    target_occupancy: int | None = None,
+    delta: int | None = None,
+    maximum_occupancy: int = 1000,
+    device_id: str = "keyboard-calibration",
+) -> dict[str, int | str | None]:
+    if (target_occupancy is None) == (delta is None):
+        raise ValueError("Provide exactly one of target_occupancy or delta")
+
+    db = get_db()
+    received_at = _utc_now()
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        total_row = db.execute(
+            "SELECT COALESCE(SUM(count_change), 0) AS total FROM occupancy_events"
+        ).fetchone()
+        raw_total = int(total_row["total"])
+        previous_occupancy = max(0, raw_total)
+        if target_occupancy is None:
+            target_occupancy = max(
+                0,
+                min(maximum_occupancy, previous_occupancy + int(delta)),
+            )
+        stored_delta = target_occupancy - raw_total
+
+        if stored_delta:
+            event = "entry" if stored_delta > 0 else "exit"
+            count_change = 1 if stored_delta > 0 else -1
+            event_row = db.execute(
+                "SELECT COALESCE(MAX(event_id), 0) AS event_id "
+                "FROM occupancy_events WHERE device_id = ?",
+                (device_id,),
+            ).fetchone()
+            first_event_id = int(event_row["event_id"]) + 1
+            rows = [
+                (
+                    device_id,
+                    first_event_id + offset,
+                    event,
+                    count_change,
+                    0,
+                    0,
+                    received_at,
+                    "calibration_adjustment",
+                    None,
+                    None,
+                )
+                for offset in range(abs(stored_delta))
+            ]
+            db.executemany(
+                """
+                INSERT INTO occupancy_events
+                    (device_id, event_id, event, count_change,
+                     duration_ms, uptime_ms, received_at,
+                     message_type, radar_target_count, radar_targets_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return {
+        "previous_occupancy": previous_occupancy,
+        "occupancy": target_occupancy,
+        "count_change": target_occupancy - previous_occupancy,
+        "events_created": abs(stored_delta),
+        "updated_at": received_at if stored_delta else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Radar storage helpers
 # ---------------------------------------------------------------------------

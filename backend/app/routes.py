@@ -27,6 +27,7 @@ from .database import (
     insert_occupancy_event,
     insert_radar_reading_if_throttled,
     reset_room,
+    calibrate_occupancy,
     upsert_environment_latest,
     upsert_radar_latest,
 )
@@ -365,6 +366,44 @@ def get_current_occupancy():
     return jsonify({
         "occupancy": occupancy,
         "updated_at": updated_at,
+    }), 200
+
+
+@api.post("/occupancy/calibrate")
+def calibrate_current_occupancy():
+    if not request.is_json:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return jsonify({"error": "Invalid or empty JSON body"}), 400
+
+    has_occupancy = "occupancy" in data
+    has_delta = "delta" in data
+    if has_occupancy == has_delta:
+        return jsonify({
+            "error": "Provide exactly one of: occupancy, delta"
+        }), 400
+
+    if has_occupancy:
+        occupancy = data["occupancy"]
+        if isinstance(occupancy, bool) or not isinstance(occupancy, int):
+            return jsonify({"error": "occupancy must be an integer"}), 400
+        if occupancy < 0 or occupancy > 1000:
+            return jsonify({"error": "occupancy must be between 0 and 1000"}), 400
+        result = calibrate_occupancy(target_occupancy=occupancy)
+    else:
+        delta = data["delta"]
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            return jsonify({"error": "delta must be an integer"}), 400
+        if delta < -1000 or delta > 1000:
+            return jsonify({"error": "delta must be between -1000 and 1000"}), 400
+        result = calibrate_occupancy(delta=delta)
+
+    return jsonify({
+        "success": True,
+        "message": "Occupancy calibrated",
+        "data": result,
     }), 200
 
 
