@@ -27,9 +27,7 @@ def close_connection(exception: BaseException | None = None) -> None:
         db.close()
 
 
-# ---------------------------------------------------------------------------
-# Schema — all CREATE TABLE statements are idempotent (IF NOT EXISTS).
-# ---------------------------------------------------------------------------
+# Database schema.
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensor_events (
@@ -171,11 +169,7 @@ CREATE INDEX IF NOT EXISTS idx_ml_predictions_window_end
 
 
 def _migrate_occupancy_events(db: sqlite3.Connection) -> None:
-    """Safely add new columns to occupancy_events if they do not already exist.
-
-    SQLite does not support ALTER TABLE … ADD COLUMN IF NOT EXISTS, so we check
-    PRAGMA table_info first.  This is safe to call multiple times.
-    """
+    """Add missing occupancy event columns safely."""
     existing = {
         row["name"]
         for row in db.execute("PRAGMA table_info(occupancy_events)").fetchall()
@@ -203,9 +197,7 @@ def init_db(app: Flask) -> None:
     _migrate_occupancy_events(db)
 
 
-# ---------------------------------------------------------------------------
-# sensor_events / room_state helpers (unchanged)
-# ---------------------------------------------------------------------------
+# Room state helpers.
 
 def insert_event(
     *,
@@ -332,9 +324,7 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# PIR doorway occupancy events
-# ---------------------------------------------------------------------------
+# PIR occupancy storage.
 
 def insert_occupancy_event(
     *,
@@ -348,11 +338,7 @@ def insert_occupancy_event(
     radar_target_count: int | None = None,
     radar_targets_json: str | None = None,
 ) -> tuple[int, str]:
-    """Insert a single PIR occupancy event and return (row_id, received_at).
-
-    Raises sqlite3.IntegrityError when the (device_id, event_id) pair already
-    exists in the database (duplicate hardware event).
-    """
+    """Insert one PIR occupancy event."""
     received_at = _utc_now()
     db = get_db()
     cursor = db.execute(
@@ -382,12 +368,7 @@ def get_occupancy_events(limit: int = 50) -> list[dict[str, Any]]:
 
 
 def get_occupancy_total() -> tuple[int, str | None]:
-    """Return (current_occupancy, updated_at) derived from occupancy_events.
-
-    current_occupancy is clamped to zero — it will never be negative.
-    updated_at is the received_at of the most recent event, or None if there
-    are no events yet.
-    """
+    """Return the non-negative occupancy total and latest event time."""
     row = get_db().execute(
         "SELECT SUM(count_change) AS total, MAX(received_at) AS updated_at "
         "FROM occupancy_events"
@@ -472,9 +453,7 @@ def calibrate_occupancy(
     }
 
 
-# ---------------------------------------------------------------------------
-# Radar storage helpers
-# ---------------------------------------------------------------------------
+# Radar storage.
 
 def upsert_radar_latest(
     *,
@@ -483,11 +462,7 @@ def upsert_radar_latest(
     target_count: int,
     targets: list[dict[str, Any]],
 ) -> str:
-    """Update (or insert) the latest radar reading for a device.
-
-    Uses INSERT OR REPLACE so the row is always the most recent snapshot.
-    Returns the received_at timestamp.
-    """
+    """Store the latest radar reading for a device."""
     received_at = _utc_now()
     targets_json = json.dumps(targets)
     db = get_db()
@@ -514,12 +489,7 @@ def insert_radar_reading_if_throttled(
     target_count: int,
     targets: list[dict[str, Any]],
 ) -> bool:
-    """Insert a radar history record if at least 1 second has elapsed since
-    the last stored record for this device.  Returns True if a row was inserted.
-
-    This throttles the radar_readings table so it never stores more than one
-    row per device per second.
-    """
+    """Store at most one radar history row per device each second."""
     db = get_db()
     row = db.execute(
         "SELECT MAX(received_at) AS last_at FROM radar_readings WHERE device_id = ?",
@@ -583,9 +553,7 @@ def get_radar_latest_for_device(device_id: str) -> dict[str, Any] | None:
     return d
 
 
-# ---------------------------------------------------------------------------
-# Environment / CO2 sensor storage helpers
-# ---------------------------------------------------------------------------
+# Environment storage.
 
 def upsert_environment_latest(
     *,
@@ -595,11 +563,7 @@ def upsert_environment_latest(
     temperature_c: float,
     humidity_percent: float,
 ) -> str:
-    """Update (or insert) the latest environment reading for a device.
-
-    Uses INSERT … ON CONFLICT so the row is always the most recent snapshot.
-    Returns the received_at timestamp.
-    """
+    """Store the latest environment reading for a device."""
     received_at = _utc_now()
     db = get_db()
     db.execute(
@@ -628,12 +592,7 @@ def insert_environment_reading_if_throttled(
     temperature_c: float,
     humidity_percent: float,
 ) -> bool:
-    """Insert an environment history record if at least 5 seconds have elapsed
-    since the last stored record for this device.  Returns True if a row was
-    inserted.
-
-    The 5-second throttle matches the SCD41 sensor's measurement interval.
-    """
+    """Store at most one environment history row per device every five seconds."""
     db = get_db()
     row = db.execute(
         "SELECT MAX(received_at) AS last_at FROM environment_readings WHERE device_id = ?",
@@ -697,9 +656,7 @@ def get_environment_history(
     return [dict(row) for row in rows]
 
 
-# ---------------------------------------------------------------------------
-# BLE / Bluetooth RSSI storage helpers
-# ---------------------------------------------------------------------------
+# BLE signal storage.
 
 def insert_bluetooth_reading(
     *,
@@ -708,12 +665,7 @@ def insert_bluetooth_reading(
     rssi: int,
     tx_power: int | None,
 ) -> str:
-    """Insert a single BLE RSSI reading and return the server-generated
-    received_at timestamp.
-
-    Timestamps are always generated server-side; do not accept timestamps
-    from anchor laptops to avoid clock-skew issues.
-    """
+    """Insert one BLE RSSI reading with a server timestamp."""
     received_at = _utc_now()
     db = get_db()
     db.execute(
@@ -731,10 +683,7 @@ def get_recent_bluetooth_readings(
     tag_id: str,
     window_seconds: float = 2.0,
 ) -> list[dict[str, Any]]:
-    """Return BLE readings for *tag_id* received within the last *window_seconds*.
-
-    Returns a list of dicts with keys: scanner_id, rssi, tx_power, received_at.
-    """
+    """Return recent BLE readings for a tag."""
     now = datetime.now(timezone.utc)
     cutoff = (now - __import__('datetime').timedelta(seconds=window_seconds)).isoformat()
     rows = get_db().execute(
@@ -752,10 +701,7 @@ def get_recent_bluetooth_readings(
 def get_active_tags(
     inactive_timeout_seconds: float = 5.0,
 ) -> list[dict[str, Any]]:
-    """Return one row per tag_id that has had a reading within the timeout.
-
-    Each row: tag_id, last_seen_at (MAX received_at).
-    """
+    """Return tags seen within the active timeout."""
     now = datetime.now(timezone.utc)
     cutoff = (now - __import__('datetime').timedelta(seconds=inactive_timeout_seconds)).isoformat()
     rows = get_db().execute(
@@ -774,11 +720,7 @@ def get_active_tags(
 
 
 def cleanup_old_bluetooth_readings(retention_hours: float = 24.0) -> int:
-    """Delete BLE readings older than *retention_hours* and return the count
-    of deleted rows.
-
-    Call this from a periodic maintenance task, not on every request.
-    """
+    """Delete expired BLE readings and return the number removed."""
     now = datetime.now(timezone.utc)
     cutoff = (now - __import__('datetime').timedelta(hours=retention_hours)).isoformat()
     db = get_db()

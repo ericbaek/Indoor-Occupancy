@@ -17,8 +17,7 @@ ZONE_ANCHORS: dict[str, str] = {
 ZONE_NAMES: tuple[str, str] = ("left", "right")
 KNOWN_ANCHOR_IDS: set[str] = set(ANCHOR_ZONES)
 
-# Different laptop adapters can have a consistent RSSI bias. These offsets
-# are applied centrally before conversion to the 0-100 heatmap score.
+# Apply anchor-specific RSSI calibration before scoring.
 ANCHOR_RSSI_OFFSET: dict[str, float] = {
     "left-anchor": float(os.environ.get("BLE_LEFT_RSSI_OFFSET", "0")),
     "right-anchor": float(os.environ.get("BLE_RIGHT_RSSI_OFFSET", "0")),

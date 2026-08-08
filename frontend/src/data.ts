@@ -26,13 +26,6 @@ export type Co2Point = { t: string; ppm: number };
 
 export type OccupancyRange = "5m" | "10m" | "30m" | "1H" | "2H";
 
-// ---------------------------------------------------------------------------
-// Real backend types — these mirror the actual JSON shapes returned by the
-// Flask API (see backend/app/routes.py). Unlike the mock types above, these
-// are not fabricated — they exist because the backend genuinely provides
-// this data (single doorway with PIR + mmWave radar and no room model yet).
-// ---------------------------------------------------------------------------
-
 export type BackendRadarTarget = {
   target_id: number;
   x_mm: number;
@@ -58,8 +51,6 @@ export type OccupancyStatus = {
   last_occupancy_event_at: string | null;
   last_radar_update_at: string | null;
   mismatch_started_at: string | null;
-  // Environment / CO2 fields, surfaced on /api/occupancy/status alongside
-  // the SCD41 sensor endpoints (/api/co2/latest, /api/co2/history/<id>).
   co2_ppm?: number | null;
   co2_level?: "normal" | "elevated" | "high" | string | null;
   temperature_c?: number | null;
@@ -67,10 +58,6 @@ export type OccupancyStatus = {
   last_environment_update_at?: string | null;
 };
 
-// Mirrors the real backend's two-zone Bluetooth signal-strength model
-// (see backend/app/ble_service.py / ble_config.py). The backend no longer
-// tracks individual tags, positions, or device counts — just one
-// left/right anchor each, smoothed to a 0-100 "signal score".
 export type BleZoneSnapshot = {
   anchor_id: string;
   zone: "left" | "right";
@@ -115,8 +102,6 @@ export type OccupancyEvent = {
   received_at: string;
 };
 
-// Live radar targets — shape matches the RD-03D UART frame the team is
-// parsing in Thonny (angle / distance / speed per target, up to 3).
 export const radarTargets: RadarTarget[] = [
   { id: 1, angle: -6.2, distance: 469.8, speed: 0 },
   { id: 2, angle: 0, distance: 0, speed: 0 },
@@ -135,47 +120,23 @@ export const alerts: Alert[] = [
   { id: "a3", kind: "offline", title: "Node offline", detail: "NODE-04 in K17-103 stopped reporting", time: "10:15 AM" },
 ];
 
-// ---------------------------------------------------------------------------
-// Reports — mock, pending backend historical-query support.
-//
-// Nothing under backend/app/ computes MAE/RMSE/fusion-gain or stores
-// exportable summaries yet (confirmed: no "evaluation"/"fusion" logic in
-// routes.py, occupancy.py, or database.py as of this build). This section
-// is shaped to match what the backend WOULD need to return so the frontend
-// can be swapped from mock to live with no component changes — see the
-// contract notes below each type. Remove this comment block once
-// /api/reports/* exists and fetch() replaces these constants in Reports.tsx.
-// ---------------------------------------------------------------------------
-
-/** One row of the fusion evaluation table (per sensing modality / model). */
 export type EvaluationMetric = {
-  /** Human label shown in the table, e.g. "PIR + mmWave fusion". */
   model: string;
-  /** Mean Absolute Error in occupancy count vs. ground truth (manual count / video review). */
   mae: number;
-  /** Root Mean Squared Error, same units as MAE — penalises large misses more. */
   rmse: number;
-  /**
-   * Fusion gain: % reduction in MAE vs. the single-sensor baseline
-   * (PIR-only). Positive = fusion helped. Null for the baseline row itself.
-   */
   fusionGainPercent: number | null;
-  /** Number of ground-truth samples the metric was computed over. */
   sampleCount: number;
 };
 
-/** Top-line summary stats shown as StatCards at the top of Reports. */
 export type ReportSummary = {
   rangeLabel: string;
   totalHoursTracked: number;
   avgOccupancy: number;
   peakOccupancy: number;
   peakAt: string;
-  /** % of expected sensor readings actually received in this range. */
   dataCompletenessPercent: number;
 };
 
-/** One exportable historical report file. */
 export type ReportExport = {
   id: string;
   name: string;

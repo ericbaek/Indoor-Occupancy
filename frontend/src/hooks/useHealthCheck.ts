@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
-// Health barely changes — poll far less often than the 1s occupancy loop.
 const POLL_MS = 5000;
 
 export type HealthState = {
@@ -17,7 +16,6 @@ const initialState: HealthState = {
   error: null,
 };
 
-/** Polls GET /api/health for a lightweight backend/database connectivity signal. */
 export function useHealthCheck(): HealthState {
   const [state, setState] = useState<HealthState>(initialState);
   const cancelledRef = useRef(false);

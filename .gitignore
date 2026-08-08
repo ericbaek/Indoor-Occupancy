@@ -1,5 +1,4 @@
-.venv/
-.venv-windows/
+**/.venv*/
 __pycache__/
 *.pyc
 *.db
@@ -7,3 +6,5 @@ __pycache__/
 backend/models/predictive_occupancy/*
 !backend/models/predictive_occupancy/.gitignore
 *.jsonl
+
+coverage/

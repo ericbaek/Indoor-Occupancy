@@ -25,8 +25,7 @@ export default function DetectionStatusCard({
   radarTargetCount: number;
   mismatchStartedAt: string | null;
 }) {
-  // Tick every second so the "uncertain for Xs" duration updates live,
-  // without waiting for the next 3s poll cycle.
+  // Update the uncertainty duration every second.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (status !== "uncertain" || !mismatchStartedAt) return;

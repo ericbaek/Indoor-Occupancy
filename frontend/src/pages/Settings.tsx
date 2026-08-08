@@ -4,20 +4,6 @@ import type { Preferences, Theme, Units } from "../hooks/usePreferences";
 import { POLL_RATE_OPTIONS } from "../hooks/usePreferences";
 import "./Settings.css";
 
-/**
- * Settings page — deliberately scoped to preferences that are fully
- * functional today with no backend changes:
- *   - theme (was previously a Topbar toggle, moved here)
- *   - units (metric/imperial — affects temperature + BLE distance display)
- *   - dashboard poll rate (actually feeds useOccupancyData's interval)
- *   - CO2 chart reference line (client-side display only)
- *
- * Deliberately NOT here: per-room capacity limits, PIR/mmWave thresholds,
- * BLE zone boundaries, account/notification prefs — those either need new
- * backend endpoints (capacity, thresholds, zones are hardcoded server-side
- * today) or would just be mock, and this page only holds settings that
- * really do something when you change them.
- */
 export default function Settings({
   preferences,
   onUpdate,

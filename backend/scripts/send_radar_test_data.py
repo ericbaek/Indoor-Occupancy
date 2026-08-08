@@ -1,21 +1,4 @@
-"""
-send_radar_test_data.py
-=======================
-Sends test payloads to the Flask backend without needing real hardware.
-Covers radar readings, occupancy events, and intentionally invalid inputs.
-
-Usage (from the backend/ directory with the virtual environment active):
-
-    python scripts/send_radar_test_data.py
-
-The backend must already be running:
-
-    python run.py
-
-Override the backend URL:
-
-    BACKEND_URL=http://192.168.1.10:5000 python scripts/send_radar_test_data.py
-"""
+"""Send radar and occupancy test payloads to the backend."""
 
 import json
 import os
@@ -27,9 +10,7 @@ BASE_URL = os.environ.get("BACKEND_URL", "http://localhost:5000").rstrip("/")
 DEVICE_ID = "test-pico-01"
 
 
-# ---------------------------------------------------------------------------
-# HTTP helpers
-# ---------------------------------------------------------------------------
+# HTTP helpers.
 
 def post_json(path: str, payload: dict) -> tuple[int, dict]:
     """Send a JSON POST request; return (status_code, response_body)."""
@@ -74,9 +55,7 @@ def _print_result(label: str, status: int, body: dict) -> None:
         print(f"          {body.get('error', body)}")
 
 
-# ---------------------------------------------------------------------------
-# Test scenarios
-# ---------------------------------------------------------------------------
+# Test scenarios.
 
 def _radar_section() -> None:
     print("\n── Radar readings (POST /api/radar/readings) ──────────────────")
@@ -248,9 +227,7 @@ def _query_section() -> None:
               f"radar_target_count = {body.get('radar_target_count')}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# Entry point.
 
 def main() -> None:
     print("=" * 60)
@@ -258,7 +235,6 @@ def main() -> None:
     print(f"  Backend: {BASE_URL}")
     print("=" * 60)
 
-    # Verify the backend is reachable.
     get_json("/api/health")
 
     _radar_section()

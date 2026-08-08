@@ -1,16 +1,12 @@
 import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OccupancyPoint } from "../data";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OccupancyPoint, OccupancyRange } from "../data";
 import OccupancyChart from "./OccupancyChart";
 
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => children,
-  AreaChart: ({
-    data,
-  }: {
-    data: OccupancyPoint[];
-  }) => (
+  AreaChart: ({ data }: { data: OccupancyPoint[] }) => (
     <div data-testid="occupancy-area-chart" data-points={JSON.stringify(data)} />
   ),
   Area: () => null,
@@ -21,33 +17,29 @@ vi.mock("recharts", () => ({
   ReferenceLine: () => null,
 }));
 
-const NOW = Date.parse("2026-08-03T12:00:00.000Z");
+afterEach(cleanup);
 
-describe("OccupancyChart ranges", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-  });
-
-  afterEach(() => {
-    cleanup();
-    vi.useRealTimers();
-  });
-
-  it("shows only readings from the previous five real minutes when 5m is selected", () => {
-    const data: OccupancyPoint[] = [
-      { timestamp: NOW - 6 * 60 * 1000, count: 1 },
-      { timestamp: NOW - 5 * 60 * 1000, count: 2 },
-      { timestamp: NOW - 10 * 1000, count: 3 },
-      { timestamp: NOW, count: 4 },
+describe("OccupancyChart", () => {
+  it("shows the selected range", () => {
+    const empty: OccupancyPoint[] = [];
+    const fiveMinutes = [
+      { t: "11:59:00", count: 2 },
+      { t: "12:00:00", count: 4 },
     ];
+    const dataByRange: Record<OccupancyRange, OccupancyPoint[]> = {
+      "5m": fiveMinutes,
+      "10m": empty,
+      "30m": [{ t: "11:30", count: 1 }],
+      "1H": empty,
+      "2H": empty,
+    };
 
-    render(<OccupancyChart data={data} capacity={40} />);
+    render(<OccupancyChart dataByRange={dataByRange} capacity={40} />);
     fireEvent.click(screen.getByRole("button", { name: "5m" }));
 
     const points = JSON.parse(
       screen.getByTestId("occupancy-area-chart").dataset.points ?? "[]",
     ) as OccupancyPoint[];
-    expect(points).toEqual(data.slice(1));
+    expect(points).toEqual(fiveMinutes);
   });
 });

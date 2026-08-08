@@ -1,15 +1,3 @@
-/**
- * Shared "is this device actually sending data right now" check.
- *
- * A device counts as online if its last reading arrived within
- * `staleAfterMs` of now; otherwise offline. Thresholds are set per sensor
- * type in Sensors.tsx based on how that sensor actually reports:
- *   - radar / CO2: continuous polling, so a short window (~15-30s) means
- *     "genuinely offline" rather than just a slow network tick.
- *   - PIR: event-driven (only reports on entry/exit), so a short window
- *     would flag it "offline" any time nobody's walked through the door
- *     for a minute \u2014 misleading. Uses a much longer window instead.
- */
 export function isRecentlySeen(receivedAtIso: string | null | undefined, staleAfterMs: number): boolean {
   if (!receivedAtIso) return false;
   const receivedAt = new Date(receivedAtIso).getTime();

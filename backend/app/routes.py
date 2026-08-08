@@ -35,17 +35,11 @@ from .occupancy import compute_new_count, get_occupancy_level
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
-# ---------------------------------------------------------------------------
-# In-memory mismatch tracking for the /api/occupancy/status endpoint.
-# Keyed by device_id → ISO timestamp string when mismatch began (or None).
-# This is a simple prototype-level approach; no persistence across restarts.
-# ---------------------------------------------------------------------------
+# Track PIR and radar mismatches until the backend restarts.
 _mismatch_started_at: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Health
-# ---------------------------------------------------------------------------
+# Health.
 
 @api.get("/health")
 def health():
@@ -57,9 +51,7 @@ def health():
     return jsonify({"status": "ok", "database": db_status}), 200
 
 
-# ---------------------------------------------------------------------------
-# Legacy sensor events (room-based)
-# ---------------------------------------------------------------------------
+# Room sensor events.
 
 @api.post("/events")
 def post_event():
@@ -197,9 +189,7 @@ def room_reset(room_id: str):
     }), 200
 
 
-# ---------------------------------------------------------------------------
-# PIR doorway occupancy events
-# ---------------------------------------------------------------------------
+# PIR occupancy events.
 
 _VALID_EVENTS = {"entry", "exit"}
 _EVENT_COUNT_CHANGE = {"entry": 1, "exit": -1}
@@ -207,12 +197,7 @@ _EVENT_COUNT_CHANGE = {"entry": 1, "exit": -1}
 
 @api.post("/occupancy/events")
 def post_occupancy_event():
-    """Accept and store a PIR doorway occupancy event from hardware.
-
-    The hardware JSON format includes optional 'message_type' and 'radar'
-    fields.  Requests that omit these fields (older format) are still accepted
-    for backward compatibility.
-    """
+    """Validate and store a PIR occupancy event."""
     if not request.is_json:
         return jsonify({"error": "Request body must be JSON"}), 400
 
@@ -220,7 +205,6 @@ def post_occupancy_event():
     if data is None:
         return jsonify({"error": "Invalid or empty JSON body"}), 400
 
-    # --- Required field presence check ---
     required = ("device_id", "event_id", "event", "count_change",
                 "duration_ms", "uptime_ms")
     missing = [f for f in required if f not in data]
@@ -229,18 +213,15 @@ def post_occupancy_event():
             {"error": f"Missing required field(s): {', '.join(missing)}"}
         ), 400
 
-    # --- device_id ---
     device_id: str = str(data["device_id"]).strip()
     if not device_id:
         return jsonify({"error": "device_id must not be empty"}), 400
 
-    # --- event_id ---
     raw_event_id = data["event_id"]
     if isinstance(raw_event_id, bool) or not isinstance(raw_event_id, int):
         return jsonify({"error": "event_id must be an integer"}), 400
     event_id: int = raw_event_id
 
-    # --- event ---
     raw_event = data["event"]
     if not isinstance(raw_event, str) or raw_event not in _VALID_EVENTS:
         return jsonify(
@@ -248,7 +229,6 @@ def post_occupancy_event():
         ), 400
     event: str = raw_event
 
-    # --- count_change: must be an integer and match the event type ---
     raw_cc = data["count_change"]
     if isinstance(raw_cc, bool) or not isinstance(raw_cc, int):
         return jsonify({"error": "count_change must be an integer"}), 400
@@ -263,7 +243,6 @@ def post_occupancy_event():
             )
         }), 400
 
-    # --- duration_ms ---
     raw_duration = data["duration_ms"]
     if isinstance(raw_duration, bool) or not isinstance(raw_duration, int):
         return jsonify({"error": "duration_ms must be an integer"}), 400
@@ -271,7 +250,6 @@ def post_occupancy_event():
         return jsonify({"error": "duration_ms must be zero or greater"}), 400
     duration_ms: int = raw_duration
 
-    # --- uptime_ms ---
     raw_uptime = data["uptime_ms"]
     if isinstance(raw_uptime, bool) or not isinstance(raw_uptime, int):
         return jsonify({"error": "uptime_ms must be an integer"}), 400
@@ -279,7 +257,6 @@ def post_occupancy_event():
         return jsonify({"error": "uptime_ms must be zero or greater"}), 400
     uptime_ms: int = raw_uptime
 
-    # --- Optional: message_type ---
     message_type: str | None = None
     if "message_type" in data:
         raw_mt = data["message_type"]
@@ -291,7 +268,6 @@ def post_occupancy_event():
             }), 400
         message_type = raw_mt
 
-    # --- Optional: radar snapshot ---
     radar_target_count: int | None = None
     radar_targets_json: str | None = None
 
@@ -300,7 +276,6 @@ def post_occupancy_event():
         if not isinstance(radar, dict):
             return jsonify({"error": "radar must be an object"}), 400
 
-        # radar.target_count
         raw_rtc = radar.get("target_count")
         if raw_rtc is None:
             return jsonify({"error": "radar.target_count is required"}), 400
@@ -310,7 +285,6 @@ def post_occupancy_event():
             return jsonify({"error": "radar.target_count must be between 0 and 3"}), 400
         radar_target_count = raw_rtc
 
-        # radar.targets
         raw_targets = radar.get("targets")
         if raw_targets is None:
             return jsonify({"error": "radar.targets is required"}), 400
@@ -325,7 +299,6 @@ def post_occupancy_event():
             }), 400
         radar_targets_json = json.dumps(raw_targets)
 
-    # --- Store event ---
     import sqlite3 as _sqlite3
     try:
         _row_id, received_at = insert_occupancy_event(
@@ -419,9 +392,7 @@ def list_occupancy_events():
     return jsonify({"events": events}), 200
 
 
-# ---------------------------------------------------------------------------
-# Radar readings
-# ---------------------------------------------------------------------------
+# Radar readings.
 
 _REQUIRED_TARGET_FIELDS = (
     "target_id", "x_mm", "y_mm", "distance_mm", "angle_deg", "speed_cm_s"
@@ -455,17 +426,14 @@ def post_radar_reading():
     if data is None:
         return jsonify({"error": "Invalid or empty JSON body"}), 400
 
-    # --- message_type ---
     if data.get("message_type") != "radar":
         return jsonify({"error": "message_type must be 'radar'"}), 400
 
-    # --- device_id ---
     raw_device = data.get("device_id", "")
     if not isinstance(raw_device, str) or not raw_device.strip():
         return jsonify({"error": "device_id must be a non-empty string"}), 400
     device_id = raw_device.strip()
 
-    # --- uptime_ms ---
     raw_uptime = data.get("uptime_ms")
     if raw_uptime is None:
         return jsonify({"error": "Missing required field: uptime_ms"}), 400
@@ -475,7 +443,6 @@ def post_radar_reading():
         return jsonify({"error": "uptime_ms must be zero or greater"}), 400
     uptime_ms = int(raw_uptime)
 
-    # --- target_count ---
     raw_tc = data.get("target_count")
     if raw_tc is None:
         return jsonify({"error": "Missing required field: target_count"}), 400
@@ -485,7 +452,6 @@ def post_radar_reading():
         return jsonify({"error": "target_count must be between 0 and 3"}), 400
     target_count = raw_tc
 
-    # --- targets ---
     raw_targets = data.get("targets")
     if raw_targets is None:
         return jsonify({"error": "Missing required field: targets"}), 400
@@ -504,7 +470,6 @@ def post_radar_reading():
         if err:
             return jsonify({"error": err}), 400
 
-    # --- Persist ---
     received_at = upsert_radar_latest(
         device_id=device_id,
         uptime_ms=uptime_ms,
@@ -529,9 +494,7 @@ def post_radar_reading():
     }), 201
 
 
-# ---------------------------------------------------------------------------
-# Radar query endpoints
-# ---------------------------------------------------------------------------
+# Radar queries.
 
 @api.get("/radar/latest")
 def get_radar_latest():
@@ -552,9 +515,7 @@ def get_radar_latest_device(device_id: str):
     return jsonify(snapshot), 200
 
 
-# ---------------------------------------------------------------------------
-# Environment / CO2 sensor readings
-# ---------------------------------------------------------------------------
+# Environment readings.
 
 @api.post("/co2/readings")
 def post_environment_reading():
@@ -566,17 +527,14 @@ def post_environment_reading():
     if data is None:
         return jsonify({"error": "Invalid or empty JSON body"}), 400
 
-    # --- message_type ---
     if data.get("message_type") != "environment":
         return jsonify({"error": "message_type must be 'environment'"}), 400
 
-    # --- device_id ---
     raw_device = data.get("device_id", "")
     if not isinstance(raw_device, str) or not raw_device.strip():
         return jsonify({"error": "device_id must be a non-empty string"}), 400
     device_id = raw_device.strip()
 
-    # --- uptime_ms ---
     raw_uptime = data.get("uptime_ms")
     if raw_uptime is None:
         return jsonify({"error": "Missing required field: uptime_ms"}), 400
@@ -586,7 +544,6 @@ def post_environment_reading():
         return jsonify({"error": "uptime_ms must be zero or greater"}), 400
     uptime_ms = int(raw_uptime)
 
-    # --- co2_ppm ---
     raw_co2 = data.get("co2_ppm")
     if raw_co2 is None:
         return jsonify({"error": "Missing required field: co2_ppm"}), 400
@@ -596,7 +553,6 @@ def post_environment_reading():
         return jsonify({"error": "co2_ppm must be zero or greater"}), 400
     co2_ppm = int(raw_co2)
 
-    # --- temperature_c ---
     raw_temp = data.get("temperature_c")
     if raw_temp is None:
         return jsonify({"error": "Missing required field: temperature_c"}), 400
@@ -604,7 +560,6 @@ def post_environment_reading():
         return jsonify({"error": "temperature_c must be a number"}), 400
     temperature_c = float(raw_temp)
 
-    # --- humidity_percent ---
     raw_hum = data.get("humidity_percent")
     if raw_hum is None:
         return jsonify({"error": "Missing required field: humidity_percent"}), 400
@@ -614,7 +569,6 @@ def post_environment_reading():
         return jsonify({"error": "humidity_percent must be between 0 and 100"}), 400
     humidity_percent = float(raw_hum)
 
-    # --- Persist ---
     received_at = upsert_environment_latest(
         device_id=device_id,
         uptime_ms=uptime_ms,
@@ -643,9 +597,7 @@ def post_environment_reading():
     }), 201
 
 
-# ---------------------------------------------------------------------------
-# Environment query endpoints
-# ---------------------------------------------------------------------------
+# Environment queries.
 
 @api.get("/co2/latest")
 def get_environment_latest():
@@ -679,17 +631,10 @@ def get_environment_history_endpoint(device_id: str):
     return jsonify({"device_id": device_id, "readings": readings}), 200
 
 
-# ---------------------------------------------------------------------------
-# CO2 level classification
-# ---------------------------------------------------------------------------
+# CO2 classification.
 
 def _co2_level(ppm: int) -> str:
-    """Classify a CO2 reading using ASHRAE-based thresholds.
-
-    - normal:   < 800 ppm  (typical outdoor / empty room)
-    - elevated: 800–1500 ppm (suggests people are present)
-    - high:     > 1500 ppm (multiple people or poor ventilation)
-    """
+    """Classify a CO2 reading by configured thresholds."""
     if ppm < 800:
         return "normal"
     if ppm <= 1500:
@@ -697,30 +642,16 @@ def _co2_level(ppm: int) -> str:
     return "high"
 
 
-# ---------------------------------------------------------------------------
-# Unified occupancy status endpoint (for the frontend)
-# ---------------------------------------------------------------------------
+# Combined frontend status.
 
 @api.get("/occupancy/status")
 def get_occupancy_status():
-    """Return a unified view of PIR occupancy, radar presence, and CO2 level.
-
-    Status rules:
-    - 'confirmed'  when occupancy count and radar presence agree.
-    - 'uncertain'  when they disagree (e.g. occupancy > 0 but no radar
-                   targets, or occupancy = 0 but radar sees targets).
-
-    The mismatch_started_at timestamp records when the disagreement began.
-    Note: radar data alone never causes the occupancy count to change
-    automatically — this is intentional to account for the ~10-second
-    mmWave detection delay.
-    """
+    """Return combined PIR, radar and environment status."""
     global _mismatch_started_at
 
     occupancy, last_occupancy_event_at = get_occupancy_total()
 
-    # Aggregate radar across all devices — use the device with the highest
-    # target_count as the representative snapshot.
+    # Use the radar device with the highest target count.
     devices = get_radar_latest_all()
     radar_target_count = 0
     last_radar_update_at: str | None = None
@@ -733,8 +664,7 @@ def get_occupancy_status():
 
     radar_presence = radar_target_count > 0
 
-    # Aggregate environment / CO2 across all devices — use the device with
-    # the highest CO2 reading as the representative value.
+    # Use the environment device with the highest CO2 reading.
     env_devices = get_environment_latest_all()
     co2_ppm: int | None = None
     temperature_c: float | None = None
@@ -751,7 +681,6 @@ def get_occupancy_status():
 
     co2_level_str: str | None = _co2_level(co2_ppm) if co2_ppm is not None else None
 
-    # Determine confirmed vs uncertain.
     occupancy_present = occupancy > 0
     agreed = (occupancy_present == radar_presence)
 

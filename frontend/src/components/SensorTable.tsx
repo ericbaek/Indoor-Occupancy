@@ -2,13 +2,9 @@ import type { RadarDevice, BleSignalSummary } from "../data";
 import { isRecentlySeen, timeAgoLabel } from "../lib/sensorHealth";
 import "./SensorTable.css";
 
-// Staleness windows, tuned per sensor type based on how it actually
-// reports (see sensorHealth.ts). Not user-configurable — these reflect
-// real reporting cadence, not a display preference like the CO2 chart
-// threshold in Settings.
-const RADAR_STALE_MS = 15_000; // continuous mmWave polling (will go offline after 15 sec of inactivity)
-const CO2_STALE_MS = 30_000; // continuous SCD41 polling (will go offline after 30 sec of inactivity)
-const PIR_STALE_MS = 60_000; // event-driven (will go offline after 1 minute of inactivity)
+const RADAR_STALE_MS = 15_000;
+const CO2_STALE_MS = 30_000;
+const PIR_STALE_MS = 60_000;
 
 type SensorStatus = "online" | "offline" | "unknown";
 
@@ -17,7 +13,6 @@ type SensorRow = {
   type: string;
   detail: string;
   lastSeen: string | null;
-  /** Overrides the computed "Xs ago" label — used when lastSeen genuinely can't be known (see BLE rows). */
   lastSeenLabel?: string;
   status: SensorStatus;
 };
@@ -63,15 +58,6 @@ function buildRows(
 ): SensorRow[] {
   const rows: SensorRow[] = [];
 
-  // PIR is a single physical doorway sensor \u2014 not two separate
-  // in/out sensors \u2014 that reports one event stream tagged "entry" or
-  // "exit". "Online" here means "is the sensor actually sending data",
-  // same as every other row; it deliberately does NOT mean "is someone
-  // currently inside" \u2014 that's an occupancy STATE (shown in the detail
-  // column below), not a connectivity signal. Conflating the two would
-  // make "Offline" ambiguous between "sensor broken" and "nobody's
-  // walked through lately", which is a bad failure mode to read at a
-  // glance.
   const directionDetail =
     lastEventType === "entry" ? "Last: Entry" : lastEventType === "exit" ? "Last: Exit" : "No events received yet";
   rows.push({
@@ -92,11 +78,6 @@ function buildRows(
     });
   }
 
-  // There's exactly one physical CO2 sensor in the real system, so this is
-  // always a single row \u2014 driven by the same aggregated status the
-  // Dashboard's CO2 StatCard uses (/api/occupancy/status), not a per-device
-  // list. That also means stale/leftover device_ids from old test runs
-  // never show up here as permanent ghost rows.
   rows.push({
     node: co2DeviceId ?? "CO2 sensor",
     type: "CO2 (SCD41)",
