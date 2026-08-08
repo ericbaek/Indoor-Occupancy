@@ -25,8 +25,8 @@ import "./App.css";
 
 const TOPBAR_COPY: Record<NavItem, { title: string; sub: string }> = {
   Dashboard: { title: "Dashboard", sub: "Real-time occupancy across CSE teaching spaces" },
-  Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock \u2014 backend is single-doorway)" },
-  Sensors: { title: "Sensors", sub: "Live node status \u2014 online/offline from real backend readings" },
+  Rooms: { title: "Rooms", sub: "Occupancy and capacity by teaching space (mock — backend is single-doorway)" },
+  Sensors: { title: "Sensors", sub: "Live node status — online/offline from real backend readings" },
   Alerts: { title: "Alerts", sub: "Capacity and sensor connectivity events (mock)" },
   Reports: { title: "Reports", sub: "Historical exports and evaluation summaries" },
   Settings: { title: "Settings", sub: "Theme, units, refresh rate and CO2 chart threshold" },
@@ -141,7 +141,7 @@ function App() {
             <BleTracker signal={data.bleSignal} />
 
             <p className="app-footer">
-              {`Occupancy is estimated from real PIR + mmWave sensor fusion \u2014 ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
+              {`Occupancy is estimated from real PIR + mmWave sensor fusion — ${activeTargets} live radar target${activeTargets === 1 ? "" : "s"} tracked.`}
             </p>
           </div>
         )}

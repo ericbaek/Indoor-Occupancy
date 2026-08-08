@@ -8,7 +8,7 @@ type TopbarProps = {
 };
 
 function healthLabel(health: HealthState): string {
-  if (health.status === "checking") return "Checking backend\u2026";
+  if (health.status === "checking") return "Checking backend…";
   if (health.status === "ok") return `Backend OK \u00b7 DB ${health.database ?? "unknown"}`;
   return "Backend unreachable";
 }
@@ -26,7 +26,7 @@ export default function Topbar({ title, sub, health }: TopbarProps) {
           title={healthLabel(health)}
         >
           <span className="health-dot" />
-          {health.status === "ok" ? "Online" : health.status === "error" ? "Offline" : "\u2026"}
+          {health.status === "ok" ? "Online" : health.status === "error" ? "Offline" : "…"}
         </span>
       </div>
     </header>

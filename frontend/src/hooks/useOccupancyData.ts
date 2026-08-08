@@ -12,16 +12,10 @@ import type {
 } from "../data";
 import { OCCUPANCY_REFRESH_EVENT } from "../lib/occupancyCalibration";
 
-// Point this at your Flask backend. Override with a Vite env var
-// (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
 const DEFAULT_POLL_MS = 1000;
 
-// How far back each range looks, and how many points to plot across that
-// window. Bucketing (rather than plotting raw events) smooths the line even
-// with just a handful of entries, and gives every range a value even in the
-// gaps between real events.
 const RANGE_CONFIG: Record<OccupancyRange, { windowMs: number; buckets: number; label: (d: Date) => string }> = {
   "5m": {
     windowMs: 5 * 60 * 1000,
@@ -50,48 +44,30 @@ const RANGE_CONFIG: Record<OccupancyRange, { windowMs: number; buckets: number; 
   },
 };
 
-// Fetch enough history to comfortably fill the widest window (2H) with
-// real events. The backend only supports a flat `limit`, not a time-range
-// filter, so we over-fetch and bucket client-side.
 const EVENTS_FETCH_LIMIT = 500;
 
-// The co2/history endpoint caps at 200 server-side; 100 is plenty to fill
-// the chart without over-fetching every poll.
 const CO2_HISTORY_LIMIT = 100;
 
 export type OccupancyData = {
-  /** Current occupancy count (sum of entry/exit events, clamped >= 0). */
   occupancy: number;
-  /** "confirmed" = PIR count and radar presence agree. "uncertain" = they don't (yet). */
   status: OccupancyStatus["status"] | null;
   radarPresence: boolean;
   radarTargetCount: number;
-  /** Live radar targets, mapped into the shape RadarScope expects. */
   radarTargets: RadarTarget[];
-  /** Recent entry/exit events, newest first, straight from the backend. */
   events: OccupancyEvent[];
-  /** Occupancy trend built from real events (running total, one point per event), raw/unbucketed. */
   occupancySeries: OccupancyPoint[];
-  /** Same real event history, bucketed per range window — powers all 5 chart tabs (5m/10m/30m/1H/2H). */
   occupancySeriesByRange: Record<OccupancyRange, OccupancyPoint[]>;
   lastOccupancyEventAt: string | null;
   lastRadarUpdateAt: string | null;
-  /** When the current PIR/radar mismatch began, or null if none is active. */
   mismatchStartedAt: string | null;
-  /** Latest CO2 ppm reading from the SCD41 sensor, or null if none yet. */
   co2Ppm: number | null;
-  /** Backend-classified level for the current co2Ppm ("low" | "moderate" | "high"). */
   co2Level: string | null;
   temperatureC: number | null;
   humidityPercent: number | null;
   lastEnvironmentUpdateAt: string | null;
-  /** CO2 device currently backing the status card, or null if none has reported. */
   co2DeviceId: string | null;
-  /** Recent readings for co2DeviceId, oldest first, ready to plot. */
   co2History: Co2Point[];
-  /** Raw per-device radar snapshots (device_id, received_at, target_count) \u2014 for Sensors page online/offline. */
   radarDevices: RadarDevice[];
-  /** Live left/right anchor signal snapshot from /api/bluetooth/signal-strength, or null before the first successful poll. */
   bleSignal: BleSignalSummary | null;
   lastUpdated: Date;
   isLive: boolean;
@@ -129,7 +105,6 @@ const initialState: OccupancyData = {
 };
 
 function mapRadarDevicesToTargets(devices: RadarDevice[]): RadarTarget[] {
-  // Flatten targets across all devices into the flat shape RadarScope renders.
   return devices.flatMap((device) =>
     device.targets.map((t) => ({
       id: t.target_id,
@@ -148,9 +123,6 @@ function formatTimeLabel(iso: string): string {
 function buildOccupancySeries(eventsChronological: OccupancyEvent[], anchorOccupancy: number): OccupancyPoint[] {
   if (eventsChronological.length === 0) return [];
 
-  // Same anchoring fix as buildCumulative: sum raw deltas, then shift so
-  // the series ends exactly on the backend's authoritative occupancy
-  // instead of assuming the fetch window started from an empty room.
   let running = 0;
   const raw = eventsChronological.map((e) => {
     running += e.count_change;
@@ -177,27 +149,8 @@ function pickHighestCo2Device(devices: Co2Reading[]): string | null {
 
 type CumPoint = { ts: number; value: number };
 
-/**
- * Build the running-occupancy series from fetched events, anchored to the
- * backend's authoritative current occupancy (`anchorOccupancy`, from
- * /occupancy/status). The backend sums the COMPLETE event history; we only
- * ever fetch the most recent `EVENTS_FETCH_LIMIT` events. Summing forward
- * from an assumed 0 silently drops any occupancy that already existed
- * before our fetch window, so the chart's endpoint can drift from the
- * status card (e.g. showing 4 when the real current occupancy is 1).
- *
- * Instead we sum forward WITHOUT clamping to get the correct shape of the
- * series, then shift every point by a constant offset so the last point
- * lands exactly on `anchorOccupancy`. That's equivalent to working
- * backward from the known-good current value using the deltas we do
- * have, which correctly carries forward pre-window occupancy.
- */
 function buildCumulative(eventsChronological: OccupancyEvent[], anchorOccupancy: number): CumPoint[] {
   if (eventsChronological.length === 0) {
-    // No events in the fetch window at all, but the room may still be
-    // occupied (those events just fell outside our `limit`). Anchor a
-    // single point at "now" so the chart shows a flat, correct line
-    // instead of a false 0.
     return [{ ts: Date.now(), value: Math.max(0, anchorOccupancy) }];
   }
 
@@ -211,7 +164,6 @@ function buildCumulative(eventsChronological: OccupancyEvent[], anchorOccupancy:
   return raw.map((p) => ({ ts: p.ts, value: Math.max(0, p.raw + offset) }));
 }
 
-/** Occupancy at time `t`, i.e. the value of the last event at or before `t` (0 if none yet). */
 function valueAt(cumAsc: CumPoint[], t: number): number {
   if (cumAsc.length === 0) return 0;
   if (t < cumAsc[0].ts) return cumAsc[0].value;
@@ -229,17 +181,11 @@ function buildRangeSeries(cumAsc: CumPoint[], range: OccupancyRange): OccupancyP
   const start = now - windowMs;
   const step = windowMs / buckets;
 
-  // Fixed grid so every range always has an evenly spaced baseline, even
-  // when nothing happened for a while.
   const gridTimes: number[] = [];
   for (let i = 0; i <= buckets; i++) {
     gridTimes.push(start + step * i);
   }
 
-  // Real event timestamps inside the window. Without these, a brief
-  // entry+exit pair that falls between two grid samples is never sampled
-  // at all, so the true peak (e.g. 2 -> 3 -> 2) silently disappears from
-  // the chart even though it really happened.
   const eventTimes = cumAsc
     .map((p) => p.ts)
     .filter((ts) => ts >= start && ts <= now);
@@ -258,12 +204,6 @@ function buildAllRangeSeries(eventsChronological: OccupancyEvent[], anchorOccupa
   return out;
 }
 
-/**
- * Single source of truth for live occupancy/radar data, polled from the
- * real Flask backend. Rooms, sensor nodes, and alerts are
- * NOT included here — the backend doesn't model those yet, so components
- * that need them still read the mock arrays directly from `../data`.
- */
 export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyData {
   const [state, setState] = useState<OccupancyData>(initialState);
   const cancelledRef = useRef(false);
@@ -283,7 +223,6 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
         if (!statusRes.ok) throw new Error(`occupancy/status: ${statusRes.status}`);
         if (!radarRes.ok) throw new Error(`radar/latest: ${radarRes.status}`);
         if (!eventsRes.ok) throw new Error(`occupancy/events: ${eventsRes.status}`);
-        // Don't fail the whole poll if BLE is down — just leave it null.
         let bleSignal: BleSignalSummary | null = null;
         if (bleSignalRes.ok) {
           bleSignal = await bleSignalRes.json();
@@ -316,7 +255,6 @@ export function useOccupancyData(pollMs: number = DEFAULT_POLL_MS): OccupancyDat
 
         if (cancelledRef.current) return;
 
-        // Backend returns newest-first; flip to chronological once, reuse everywhere.
         const chronological = [...(eventsJson.events ?? [])].reverse();
 
         setState({

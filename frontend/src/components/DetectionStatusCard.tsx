@@ -66,7 +66,7 @@ export default function DetectionStatusCard({
       <div className={`stat-tag stat-tag-${isConfirmed ? "signal" : isUncertain ? "amber" : "neutral"}`}>
         <span className="stat-tag-dot" />
         {isConfirmed && "PIR + radar agree"}
-        {isUncertain && `Mismatch \u2014 ${mismatchDuration}`}
+        {isUncertain && `Mismatch — ${mismatchDuration}`}
         {!status && "No data yet"}
       </div>
     </div>
