@@ -1,11 +1,4 @@
-"""Two-zone Bluetooth signal-strength state and smoothing.
-
-The scanner reduces a short window of advertisements to one representative
-RSSI value. The backend applies per-anchor calibration, converts RSSI to a
-0-100 score, and smooths the score with an exponential moving average.
-
-No device count, distance, coordinate, or person estimate is produced here.
-"""
+"""Smooth left and right Bluetooth signal strength for the heatmap."""
 
 from __future__ import annotations
 

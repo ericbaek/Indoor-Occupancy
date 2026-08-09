@@ -1,20 +1,4 @@
-"""
-send_environment_test_data.py
-=============================
-Send simulated CO2 / environment sensor readings to the backend and query
-the resulting state.  Mirrors the pattern of send_radar_test_data.py.
-
-Usage
------
-    # Backend must be running first:
-    python run.py
-
-    # In a separate terminal (from the backend/ directory):
-    python scripts/send_environment_test_data.py
-
-    # Override the backend URL:
-    python scripts/send_environment_test_data.py --url http://192.168.1.10:5000
-"""
+"""Send environment test readings to the backend."""
 
 import argparse
 import json
@@ -24,16 +8,12 @@ import time
 
 import requests
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# Configuration.
 
 DEFAULT_URL = os.environ.get("BACKEND_URL", "http://localhost:5000")
 DEVICE = "scd41-nano-01"
 
-# ---------------------------------------------------------------------------
-# Test payloads
-# ---------------------------------------------------------------------------
+# Test payloads.
 
 # Simulate a sequence of CO2 readings that increase as people enter a room.
 _TEST_READINGS = [
@@ -149,9 +129,7 @@ _TEST_READINGS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
+# Entry point.
 
 def _post(url: str, payload: dict) -> requests.Response:
     return requests.post(url, json=payload, timeout=5)

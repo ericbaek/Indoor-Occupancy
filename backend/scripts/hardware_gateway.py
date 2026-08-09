@@ -1,45 +1,4 @@
-"""
-hardware_gateway.py
-===================
-Reads JSON lines from stdin or a serial port and forwards them to the
-Flask backend via HTTP POST.
-
-Supported message types:
-  - "radar"           → POST /api/radar/readings
-  - "occupancy_event" → POST /api/occupancy/events
-  - "environment"     → POST /api/co2/readings
-
-Usage
------
-Stdin mode (pipe hardware output or simulate with echo):
-
-    python scripts/hardware_gateway.py --mode stdin
-
-    echo '{"message_type":"radar","device_id":"doorway-pico-01","uptime_ms":1000,"target_count":0,"targets":[]}' \\
-        | python scripts/hardware_gateway.py --mode stdin
-
-Serial mode (connect the Raspberry Pi Pico via USB):
-
-    python scripts/hardware_gateway.py --mode serial --port /dev/ttyACM0 --baudrate 115200
-
-    # On Windows the port is typically COM3, COM4, etc.
-    python scripts/hardware_gateway.py --mode serial --port COM3 --baudrate 115200
-
-Backend URL
------------
-Override the default backend URL via --url or the BACKEND_URL environment
-variable:
-
-    BACKEND_URL=http://192.168.1.10:5000 python scripts/hardware_gateway.py --mode stdin
-
-Notes
------
-- The Pico's internal UART to the RD03D radar uses 256 000 baud, but the
-  USB CDC serial port presented to the host PC always runs at 115 200 baud.
-- Bad JSON lines are logged and skipped without crashing.
-- Unknown message types are logged and skipped.
-- HTTP errors and connection failures are logged; the gateway keeps running.
-"""
+"""Forward hardware JSON lines from serial or stdin to the backend."""
 
 import argparse
 import json
@@ -56,9 +15,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("hardware_gateway")
 
-# ---------------------------------------------------------------------------
-# Endpoint routing
-# ---------------------------------------------------------------------------
+# Endpoint routing.
 
 _ROUTES: dict[str, str] = {
     "radar": "/api/radar/readings",
@@ -95,9 +52,7 @@ def _forward(base_url: str, message: dict) -> None:
         log.error("HTTP request failed: %s", exc)
 
 
-# ---------------------------------------------------------------------------
-# Line processing
-# ---------------------------------------------------------------------------
+# Serial line processing.
 
 def _process_line(line: str, base_url: str) -> None:
     """Parse a single JSON line and forward it to the backend."""
@@ -118,9 +73,7 @@ def _process_line(line: str, base_url: str) -> None:
     _forward(base_url, message)
 
 
-# ---------------------------------------------------------------------------
-# Input sources
-# ---------------------------------------------------------------------------
+# Input sources.
 
 def _run_stdin(base_url: str) -> None:
     """Read JSON lines from stdin until EOF."""
@@ -168,9 +121,7 @@ def _run_serial(port: str, baudrate: int, base_url: str) -> None:
         ser.close()
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+# Entry point.
 
 def _parse_args() -> argparse.Namespace:
     default_url = os.environ.get("BACKEND_URL", "http://localhost:5000")

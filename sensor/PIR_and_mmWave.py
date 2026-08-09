@@ -3,20 +3,14 @@ from time import sleep, ticks_ms, ticks_diff
 from rd03d import RD03D
 import ujson
 
-# hardware Setup
-
 pir_outside = Pin(15, Pin.IN)
 pir_inside = Pin(14, Pin.IN)
 
 radar = RD03D(uart_id=1, tx_pin=4, rx_pin=5, multi_mode=True)
 
-# configuration
-
 TIMEOUT_MS = 3000
 RADAR_SEND_INTERVAL_MS = 500
 DEVICE_ID = "doorway-pico-01"
-
-# states
 
 last_outside = pir_outside.value()
 last_inside = pir_inside.value()
@@ -26,12 +20,10 @@ event_number = 0
 last_radar_send = ticks_ms()
 latest_targets = []
 
-# printing Json data to terminal
 def send_json(data):
     print(ujson.dumps(data))
     print()
 
-# return target's information
 def target_to_dict(target, target_number):
     if target is None:
         return None
@@ -48,7 +40,6 @@ def target_to_dict(target, target_number):
         "speed_cm_s": target.speed
     }
 
-# return info of all available targets
 def read_radar_targets():
     targets = []
 
@@ -61,7 +52,6 @@ def read_radar_targets():
 
     return targets
 
-# sending radar json data
 def send_radar_data(targets):
     message = {
         "message_type": "radar",
@@ -73,7 +63,6 @@ def send_radar_data(targets):
 
     send_json(message)
 
-# sending PIR sensor data + radar data
 def send_occupancy_event(event_type, count_change, duration_ms):
     global event_number
     event_number += 1
@@ -93,19 +82,15 @@ def send_occupancy_event(event_type, count_change, duration_ms):
 
     send_json(message)
 
-# main Loop
-
 while True:
     if radar.update():
         latest_targets = read_radar_targets()
         now = ticks_ms()
         
-        # send radar data after every 500 ms
         if ticks_diff(now, last_radar_send) >= RADAR_SEND_INTERVAL_MS:
             send_radar_data(latest_targets)
             last_radar_send = now
 
-    # read PIR sensors
     outside = pir_outside.value()
     inside = pir_inside.value()
     outside_triggered = outside == 1 and last_outside == 0

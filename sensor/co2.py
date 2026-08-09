@@ -1,22 +1,10 @@
-"""
-co2.py — MicroPython SCD41 CO₂ sensor driver
-Board  : Arduino Nano 33 BLE Sense Rev2
-Sensor : DFRobot Gravity SCD41, SEN0536, I²C 0x62
-Wiring : SDA → A4 (Pin 18), SCL → A5 (Pin 19), VCC → 3.3 V, GND → GND
-
-Outputs one JSON line every 5 s:
-  {"message_type":"environment","device_id":"scd41-nano-01",
-   "uptime_ms":12000,"co2_ppm":491,"temperature_c":23.6,"humidity_percent":37.9}
-
-Run in Thonny (MicroPython interpreter), then save to Nano as main.py.
-Close Thonny before starting the gateway.
-"""
+"""Read the SCD41 and emit an environment JSON line every five seconds."""
 
 import time
 try:
-    import ujson as json  # MicroPython
+    import ujson as json
 except ImportError:
-    import json           # CircuitPython
+    import json
 from machine import I2C, Pin
 
 _SDA_PIN = 18

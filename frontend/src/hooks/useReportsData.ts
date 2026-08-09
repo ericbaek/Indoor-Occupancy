@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReportSummary, EvaluationMetric, ReportExport } from "../data";
 
-// Point this at your Flask backend. Override with a Vite env var
-// (VITE_API_BASE_URL in a .env file) if the backend runs somewhere else.
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000/api";
 
-/** Matches the `range` query param accepted by /api/reports/*. */
 export type ReportRange = "24h" | "7d" | "30d" | "90d";
 
 export const REPORT_RANGES: { value: ReportRange; label: string }[] = [
@@ -48,7 +45,6 @@ export type ReportsData = {
   exports: ReportExport[];
   isLoading: boolean;
   error: string | null;
-  /** Absolute download URL for a given export id, valid for the current range. */
   downloadUrl: (exportId: string) => string;
   refresh: () => void;
 };
@@ -95,12 +91,6 @@ function mapExport(raw: RawExport): ReportExport {
   };
 }
 
-/**
- * Live /api/reports/* data for the Reports page. Refetches whenever `range`
- * changes. Unlike useOccupancyData this isn't polled by default — reports
- * are historical, so a fetch on mount/range-change (plus manual refresh())
- * is enough.
- */
 export function useReportsData(range: ReportRange): ReportsData {
   const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [evaluationMetrics, setEvaluationMetrics] = useState<EvaluationMetric[]>([]);

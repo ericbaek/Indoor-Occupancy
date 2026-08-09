@@ -4,13 +4,6 @@ import { useReportsData, REPORT_RANGES, type ReportRange } from "../hooks/useRep
 import { useState } from "react";
 import "./Reports.css";
 
-/**
- * Reports page — live data from /api/reports/*.
- *
- * Fetches summary stats, fusion evaluation metrics, and export listings for
- * the selected range (24h / 7d / 30d / 90d) via useReportsData, and links
- * directly to the backend's file-download endpoint for each export.
- */
 export default function Reports() {
   const [range, setRange] = useState<ReportRange>("7d");
   const { summary, evaluationMetrics, exports, isLoading, error, downloadUrl, refresh } =

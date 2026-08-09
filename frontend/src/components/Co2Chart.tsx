@@ -7,10 +7,8 @@ export default function Co2Chart({
   deviceId,
   elevatedPpm = 800,
 }: {
-  /** Recent readings for one CO2 device, oldest first. */
   data: Co2Point[];
   deviceId: string | null;
-  /** User-configurable reference line (Settings \u2192 CO2 chart reference line). */
   elevatedPpm?: number;
 }) {
   const hasData = data.length > 0;

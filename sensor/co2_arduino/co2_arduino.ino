@@ -1,15 +1,4 @@
-/*
- * co2_serial.ino — SCD41 CO2 sensor driver for Arduino Nano 33 BLE Sense Rev2
- *
- * Board  : Arduino Nano 33 BLE Sense Rev2
- * Sensor : DFRobot SCD41 (SEN0536), I2C 0x62
- * Wiring : SDA → A4, SCL → A5, VCC → 3.3 V, GND → GND
- * Baud   : 115200
- *
- * Outputs one JSON line every 5 s:
- *   {"message_type":"environment","device_id":"scd41-nano-01",
- *    "uptime_ms":5000,"co2_ppm":491,"temperature_c":23.60,"humidity_percent":37.90}
- */
+// Read the SCD41 over I2C and emit an environment JSON line at 115200 baud every five seconds.
 
 #include <Wire.h>
 

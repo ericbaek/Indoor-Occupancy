@@ -1,32 +1,12 @@
 import { useEffect, useState } from "react";
 
-/**
- * App-wide user preferences — all genuinely functional, frontend-only
- * settings (no backend dependency). Persisted to localStorage so they
- * survive a refresh.
- *
- * Deliberately excludes anything that would need backend support to
- * actually do something (per-room capacity limits, PIR/mmWave sensor
- * thresholds, BLE zone boundaries) — those are still hardcoded server-side
- * in ble_config.py / routes.py and aren't exposed via any API yet.
- */
 export type Theme = "light" | "dark";
 export type Units = "metric" | "imperial";
 
 export type Preferences = {
   theme: Theme;
-  /** metric = \u00b0C + metres, imperial = \u00b0F + feet */
   units: Units;
-  /** How often the dashboard polls the backend, in ms. */
   pollMs: number;
-  /**
-   * Client-side-only CO2 reference line (ppm), shown as the dashed
-   * threshold on the CO2 trend chart. Does NOT change the backend's
-   * actual normal/elevated/high classification (_co2_level() in
-   * routes.py) — that stays the source of truth for the StatCard tone.
-   * This just lets the viewer pick what "elevated" means to *them*
-   * visually on the chart.
-   */
   co2AlertThreshold: number;
 };
 
@@ -70,10 +50,6 @@ export function usePreferences() {
 
   return { preferences, update };
 }
-
-// ---------------------------------------------------------------------------
-// Unit conversion helpers
-// ---------------------------------------------------------------------------
 
 export function formatTemperature(celsius: number, units: Units): string {
   if (units === "imperial") {

@@ -1,25 +1,4 @@
-"""
-send_pir_test_events.py
-=======================
-Sends a realistic sequence of PIR doorway occupancy events to the backend
-without needing the real hardware.
-
-Usage (from the backend/ directory with the virtual environment active):
-
-    python scripts/send_pir_test_events.py
-
-The backend must already be running:
-
-    python run.py
-
-Expected final occupancy:  2
-  event_id 1  entry  → +1 → 1
-  event_id 2  entry  → +1 → 2
-  event_id 3  entry  → +1 → 3
-  event_id 4  exit   → -1 → 2
-  event_id 5  entry  → +1 → 3
-  event_id 6  exit   → -1 → 2
-"""
+"""Send PIR occupancy test events to the backend."""
 
 import json
 import sys
@@ -31,9 +10,7 @@ ENDPOINT = f"{BASE_URL}/api/occupancy/events"
 CURRENT_URL = f"{BASE_URL}/api/occupancy/current"
 DEVICE_ID = "doorway-pico-01"
 
-# ---------------------------------------------------------------------------
-# Simulated hardware events
-# ---------------------------------------------------------------------------
+# Simulated hardware events.
 
 EVENTS = [
     {
@@ -87,9 +64,7 @@ EVENTS = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
+# HTTP helper.
 
 def post_json(url: str, payload: dict) -> tuple[int, dict]:
     """Send a JSON POST request and return (status_code, response_body)."""
@@ -121,9 +96,7 @@ def get_json(url: str) -> tuple[int, dict]:
         sys.exit(1)
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# Entry point.
 
 def main() -> None:
     print("=" * 60)
@@ -131,7 +104,6 @@ def main() -> None:
     print(f"  Endpoint: {ENDPOINT}")
     print("=" * 60)
 
-    # Verify the backend is reachable before sending events.
     get_json(f"{BASE_URL}/api/health")
 
     for event in EVENTS:
@@ -144,7 +116,6 @@ def main() -> None:
         else:
             print(f"{label}  →  ERROR {status}: {body.get('error', body)}")
 
-    # Fetch and display the current occupancy.
     print("-" * 60)
     status, body = get_json(CURRENT_URL)
     if status == 200:

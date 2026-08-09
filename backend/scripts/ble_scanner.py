@@ -1,15 +1,4 @@
-"""Windowed Bluetooth signal scanner for the Left/Right room heatmap.
-
-Run the same program on both anchor computers and set ``ANCHOR_ID`` to either
-``left-anchor`` or ``right-anchor``. During each short scan window the scanner:
-
-1. groups repeated advertisements by Bluetooth address,
-2. takes the median RSSI for each address,
-3. keeps only the strongest few representative signals, and
-4. sends their median RSSI and a 0-100 score to the Flask backend.
-
-The address count is never used as the heatmap value or a person estimate.
-"""
+"""Scan a Bluetooth window and send signal strength to the room heatmap."""
 
 from __future__ import annotations
 
@@ -108,8 +97,7 @@ def summarise_window(
     return {
         "average_rssi": overall_rssi,
         "signal_score": rssi_to_score(overall_rssi),
-        # Debug-only metrics. They are logged locally and not sent as the
-        # heatmap measurement or exposed as occupancy/device counts.
+        # Keep discovery metrics local to the scanner log.
         "observed_address_count": len(representative_rssi),
         "strongest_signal_count": len(strongest),
     }

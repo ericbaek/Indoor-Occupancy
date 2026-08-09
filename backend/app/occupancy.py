@@ -1,10 +1,3 @@
-# TODO: PIR OUTSIDE -> INSIDE sequence detection (entry inference)
-# TODO: PIR INSIDE -> OUTSIDE sequence detection (exit inference)
-# TODO: mmWave trajectory analysis for occupancy inference
-# TODO: CO2 trend analysis as a secondary occupancy signal
-# TODO: Duplicate-event filtering (debounce repeated triggers)
-# TODO: Sensor health monitoring (detect stale / offline devices)
-
 _ENTRY_EVENT = "ENTRY"
 _EXIT_EVENT = "EXIT"
 
