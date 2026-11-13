@@ -4,6 +4,10 @@ A team-built IoT prototype that combines doorway sensing, environmental monitori
 
 **Stack:** React · TypeScript · Flask · SQLite · MicroPython/Arduino · Bleak · scikit-learn · Docker Compose
 
+Eric Baek coordinated development across the non-frontend parts of the project and contributed hands-on to backend services, sensor/firmware development, and system integration. His work also included Docker/Compose setup and project documentation. Frontend implementation was handled by other team members; the complete system was a collaborative team effort.
+
+[Watch the 29-second doorway walkthrough](IMG_1965.MOV)
+
 ## What it does
 
 - Tracks entry/exit events and maintains an occupancy total with duplicate-event protection and manual calibration.
@@ -49,8 +53,6 @@ The [serial gateway](backend/scripts/hardware_gateway.py) routes newline-delimit
 ## Project context and contributions
 
 Developed as a **COMP6733 team project**. The sensing, backend, dashboard, and forecasting components reflect work by multiple contributors.
-
-Eric Baek coordinated development across the non-frontend parts of the project and contributed hands-on to backend services, sensor/firmware development, and system integration. His work also included Docker/Compose setup and project documentation. Frontend implementation was handled by other team members; the complete system was a collaborative team effort.
 
 Other contributor names recorded in Git history include Aarya Mane, Chanhee Lee, Francesco Cliff Hervenlee, Shreyas / Shreyas Sinha, `kheliff`, and `Backend Dev`. Commit authorship is an incomplete record of individual roles.
 
